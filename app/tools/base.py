@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import Any, ClassVar, Type
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -46,14 +46,9 @@ class BaseTool(ABC):
     """
 
     metadata: ToolMetadata
-    args_model: ClassVar[Type[BaseModel] | None] = None
+    args_model: ClassVar[type[BaseModel] | None] = None
 
     def validate_arguments(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Validate and coerce tool arguments.
-
-        Prefer the class-level ``args_model`` (Pydantic). Fall back to a
-        minimal required-fields check against ``input_schema``.
-        """
         if self.args_model is not None:
             try:
                 validated = self.args_model.model_validate(kwargs)
@@ -78,11 +73,9 @@ class BaseTool(ABC):
 
     @abstractmethod
     async def execute(self, **kwargs: Any) -> ToolResult:
-        """Execute the tool with validated arguments."""
         ...
 
     def to_llm_definition(self) -> dict[str, Any]:
-        """Convert to the format expected by LLM providers."""
         return {
             "name": self.metadata.name,
             "description": self.metadata.description,

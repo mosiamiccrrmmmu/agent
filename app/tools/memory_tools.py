@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tools for reading/writing long-term memory (with proper control)."""
 
-from typing import Any, ClassVar, Type
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +22,7 @@ class RecallArgs(BaseModel):
 
 
 class RememberTool(BaseTool):
-    args_model: ClassVar[Type[BaseModel]] = RememberArgs
+    args_model: ClassVar[type[BaseModel]] = RememberArgs
 
     metadata = ToolMetadata(
         name="remember",
@@ -34,17 +34,8 @@ class RememberTool(BaseTool):
         input_schema={
             "type": "object",
             "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "The fact to remember",
-                    "minLength": 1,
-                    "maxLength": 2000,
-                },
-                "category": {
-                    "type": "string",
-                    "description": "Category (e.g. preference, contact, work)",
-                    "default": "general",
-                },
+                "content": {"type": "string", "description": "The fact to remember", "minLength": 1, "maxLength": 2000},
+                "category": {"type": "string", "description": "Category", "default": "general"},
             },
             "required": ["content"],
         },
@@ -52,31 +43,20 @@ class RememberTool(BaseTool):
         tags=["memory"],
     )
 
-    async def execute(
-        self, content: str, category: str = "general", **_: Any
-    ) -> ToolResult:
+    async def execute(self, content: str, category: str = "general", **_: Any) -> ToolResult:
         item = _long_term.add(content=content, category=category, source="agent")
-        return ToolResult(
-            success=True, data={"id": item.id, "content": item.content}
-        )
+        return ToolResult(success=True, data={"id": item.id, "content": item.content})
 
 
 class RecallTool(BaseTool):
-    args_model: ClassVar[Type[BaseModel]] = RecallArgs
+    args_model: ClassVar[type[BaseModel]] = RecallArgs
 
     metadata = ToolMetadata(
         name="recall",
         description="Search long-term memory for facts about the user.",
         input_schema={
             "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "What to search for",
-                    "minLength": 1,
-                    "maxLength": 500,
-                },
-            },
+            "properties": {"query": {"type": "string", "description": "What to search for", "minLength": 1, "maxLength": 500}},
             "required": ["query"],
         },
         risk_level=RiskLevel.LOW,
@@ -87,8 +67,5 @@ class RecallTool(BaseTool):
         items = _long_term.search(query)
         return ToolResult(
             success=True,
-            data=[
-                {"id": i.id, "content": i.content, "category": i.category}
-                for i in items
-            ],
+            data=[{"id": i.id, "content": i.content, "category": i.category} for i in items],
         )

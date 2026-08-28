@@ -13,7 +13,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U agent -d personal_agent"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
 
   api:
     build:
@@ -21,14 +22,28 @@ services:
       dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
-    env_file:
-      - .env
+    environment:
+      - APP_NAME=Personal AI Agent
+      - APP_ENV=development
+      - DEBUG=true
+      - LOG_LEVEL=INFO
+      - SECRET_KEY=dev-secret-key-change-in-production-32chars
+      - DATABASE_URL=postgresql+asyncpg://agent:agent@db:5432/personal_agent
+      - DATABASE_URL_SYNC=postgresql://agent:agent@db:5432/personal_agent
+      - DEFAULT_LLM_PROVIDER=mock
+      - MAX_AGENT_STEPS=15
+      - AGENT_TIMEOUT_SECONDS=120
+      - REQUIRE_APPROVAL_FOR_HIGH_RISK=true
+      - REQUIRE_APPROVAL_FOR_CRITICAL=true
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - .:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   pgdata:

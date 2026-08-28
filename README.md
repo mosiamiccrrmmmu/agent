@@ -17,11 +17,11 @@ A production-oriented Personal AI Agent with Tools, Memory, Permissions, Human-i
 | PostgreSQL + pgvector (Docker) | ✅ |
 | Agent Orchestrator | ✅ |
 | LLM abstraction (Claude / OpenAI / Mock) | ✅ |
-| Tool Registry + validation | ✅ |
+| Tool Registry + Pydantic validation | ✅ |
 | Permission + Approval system | ✅ |
 | Memory (Short / Long / Profile) | ✅ |
 | API endpoints | ✅ |
-| Tests (unit + E2E with Mock) | ✅ 16 passed |
+| Tests (unit + E2E with Mock) | ✅ 25 passed |
 | Docker + Healthchecks | ✅ |
 | Security baseline | ✅ |
 | Documentation | ✅ |
@@ -34,8 +34,7 @@ A production-oriented Personal AI Agent with Tools, Memory, Permissions, Human-i
 git clone https://github.com/mosiamiccrrmmmu/agent.git
 cd agent
 cp .env.example .env
-# Set SECRET_KEY and optionally ANTHROPIC_API_KEY
-# For tests without keys: DEFAULT_LLM_PROVIDER=mock
+# Set SECRET_KEY; for tests without API keys use DEFAULT_LLM_PROVIDER=mock
 
 docker compose up --build
 # API: http://localhost:8000
@@ -50,7 +49,7 @@ curl -X POST http://localhost:8000/api/v1/chat -H 'Content-Type: application/jso
 
 ```bash
 pip install -e ".[dev]"
-pytest -v   # 16 passed (uses Mock LLM)
+pytest -v   # 25 passed (Mock LLM)
 ruff check app tests
 ```
 
@@ -60,6 +59,7 @@ ruff check app tests
 - HIGH/CRITICAL tools require approval
 - Agent max_steps + timeout
 - Session-isolated short-term memory
+- Strict Pydantic validation on all tool arguments
 
 ## License
 

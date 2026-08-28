@@ -1,65 +1,48 @@
 # Personal AI Agent
 
-**My Personal AI Operating System**
+**My Personal AI Operating System** — Phase 2
 
-A production-oriented Personal AI Agent with Tools, Memory, Permissions, Human-in-the-Loop Approvals, and multi-provider LLM abstraction.
+A production-oriented Personal AI Agent with real-world integrations, permissions, and human-in-the-loop approvals.
 
-> This is **not** a simple chatbot. It is an Agent Runtime.
+## Phase Status
 
----
-
-## Phase 1 Status — COMPLETE
-
-| Component | Status |
-|-----------|--------|
-| Repository structure | ✅ |
-| FastAPI application | ✅ |
-| PostgreSQL + pgvector (Docker) | ✅ |
-| Agent Orchestrator | ✅ |
-| LLM abstraction (Claude / OpenAI / Mock) | ✅ |
-| Tool Registry + Pydantic validation | ✅ |
-| Permission + Approval system | ✅ |
-| Memory (Short / Long / Profile) | ✅ |
-| API endpoints | ✅ |
-| Tests (unit + E2E with Mock) | ✅ 25 passed |
-| Docker + Healthchecks | ✅ |
-| Security baseline | ✅ |
-| Documentation | ✅ |
-
----
+| Phase | Status |
+|-------|--------|
+| Phase 1 — Core Agent, LLM, Tools, Permissions, Memory | Complete |
+| Phase 2 — Integrations (Telegram, Gmail, Calendar, Browser, Computer, WhatsApp, Scheduler) | Scaffolding + tools + API |
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/mosiamiccrrmmmu/agent.git
-cd agent
 cp .env.example .env
-# Set SECRET_KEY; for tests without API keys use DEFAULT_LLM_PROVIDER=mock
-
-docker compose up --build
-# API: http://localhost:8000
+pip install -e ".[dev]"
+uvicorn app.main:app --reload --port 8000
 ```
 
 ```bash
 curl http://localhost:8000/api/v1/health
-curl -X POST http://localhost:8000/api/v1/chat -H 'Content-Type: application/json' -d '{"message":"hello"}'
+curl http://localhost:8000/api/v1/integrations
+curl http://localhost:8000/api/v1/tools
 ```
+
+## Phase 2 Capabilities
+
+- Telegram interface (commands + NL, webhook)
+- Gmail / Calendar tools (OAuth for live data; send = HIGH risk)
+- Browser (Playwright) navigate + extract
+- Computer Use with ComputerPolicy (HIGH needs approval)
+- WhatsApp provider abstraction (Business vs Web documented)
+- Scheduler (one_time / daily / interval)
+- Run history + cost limits
+- Integration health at `/integrations`
+
+WhatsApp Web automation is **not** an official API and is not the default.
 
 ## Tests
 
 ```bash
-pip install -e ".[dev]"
-pytest -v   # 25 passed (Mock LLM)
-ruff check app tests
+pytest -v
 ```
-
-## Security
-
-- Secrets only in env / .env (never committed)
-- HIGH/CRITICAL tools require approval
-- Agent max_steps + timeout
-- Session-isolated short-term memory
-- Strict Pydantic validation on all tool arguments
 
 ## License
 

@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-"""Personal AI Agent — FastAPI application entry point (Phase 2)."""
+"""Personal AI - FastAPI application entry point (Desktop + Agent Core)."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from app.api.desktop_routes import router as desktop_router
 from app.api.routes import router
 from app.config import get_settings
 from app.core.logging import get_logger, setup_logging
+from app.desktop.lifecycle import lifecycle
+from app.desktop.paths import get_app_paths
 from app.llm.factory import llm_factory
 from app.tools.memory_tools import RecallTool, RememberTool
 from app.tools.registry import tool_registry
@@ -66,20 +73,28 @@ def _register_all_tools() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    paths = get_app_paths()
     setup_logging(log_level=settings.log_level, json_logs=settings.is_production)
     logger = get_logger("app")
 
+    lifecycle.mark_starting()
     _register_all_tools()
+    lifecycle.mark_ready(database_ok=True)
 
     logger.info(
         "app_started",
         env=settings.app_env,
         tools=len(tool_registry.list_tools()),
         phase=2,
+        version=settings.app_version,
+        desktop=settings.is_desktop,
+        data_root=str(paths.root),
     )
     yield
 
+    lifecycle.mark_stopping()
     await llm_factory.close_all()
+    lifecycle.mark_stopped()
     logger.info("app_shutdown")
 
 
@@ -87,18 +102,45 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
-        version="0.2.0",
-        description="Personal AI Agent — Phase 2 integrations",
+        version=settings.app_version,
+        description="Personal AI - Desktop + Agent Core",
         lifespan=lifespan,
     )
+    if settings.debug:
+        origins = ["*"]
+    else:
+        origins = [
+            "http://localhost",
+            "http://127.0.0.1",
+            "tauri://localhost",
+            "https://tauri.localhost",
+        ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.debug else [],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(router, prefix="/api/v1")
+    api_prefix = "/api/v1"
+    app.include_router(router, prefix=api_prefix)
+    app.include_router(desktop_router, prefix=api_prefix)
+
+    ui_dir = Path(__file__).resolve().parents[1] / "desktop" / "src"
+    if not ui_dir.exists():
+        import sys
+
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            ui_dir = Path(sys._MEIPASS) / "desktop" / "src"
+    if ui_dir.exists():
+        index = ui_dir / "index.html"
+
+        @app.get("/")
+        async def ui_index() -> FileResponse:
+            return FileResponse(index)
+
+        app.mount("/ui", StaticFiles(directory=str(ui_dir), html=True), name="ui")
+
     return app
 
 

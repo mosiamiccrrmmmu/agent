@@ -1,0 +1,66 @@
+# -*- mode: python ; coding: utf-8 -*-
+block_cipher = None
+
+a = Analysis(
+    ['run_personal_ai.py'],
+    pathex=[],
+    binaries=[],
+    datas=[
+        ('desktop/src', 'desktop/src'),
+        ('VERSION', '.'),
+    ],
+    hiddenimports=[
+        'uvicorn.logging',
+        'uvicorn.loops',
+        'uvicorn.loops.auto',
+        'uvicorn.protocols',
+        'uvicorn.protocols.http',
+        'uvicorn.protocols.http.auto',
+        'uvicorn.protocols.websockets',
+        'uvicorn.protocols.websockets.auto',
+        'uvicorn.lifespan',
+        'uvicorn.lifespan.on',
+        'app.main',
+        'app.desktop.launcher',
+        'aiosqlite',
+        'keyring',
+        'pydantic_settings',
+        'structlog',
+        'multipart',
+        'anyio._backends._asyncio',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'torch', 'torchvision', 'torchaudio',
+        'tensorflow', 'keras',
+        'pandas', 'scipy', 'numpy.tests',
+        'matplotlib', 'PIL.ImageQt',
+        'notebook', 'IPython', 'jupyter',
+        'cv2', 'sklearn', 'sympy',
+        'gi', 'PyQt5', 'PyQt6', 'PySide2', 'PySide6',
+    ],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='PersonalAI',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    runtime_tmpdir=None,
+    console=True,
+    disable_windowed_traceback=False,
+)

@@ -1,0 +1,15 @@
+{
+  "name": "personal-ai-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal AI Windows desktop shell",
+  "scripts": {
+    "dev": "echo 'Open desktop/src in a static server; backend via uvicorn'",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

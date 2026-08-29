@@ -1,10 +1,13 @@
 [project]
 name = "personal-ai-agent"
-version = "0.1.0"
-description = "Production-ready Personal AI Agent"
+version = "1.0.0"
+description = "Production-ready Personal AI Agent — My Personal AI Operating System"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+authors = [
+    { name = "Personal AI Agent" }
+]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -12,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
     "httpx>=0.28.0",
     "python-dotenv>=1.0.1",
     "structlog>=24.4.0",
@@ -22,10 +26,32 @@ dependencies = [
     "anthropic>=0.40.0",
     "openai>=1.55.0",
     "tiktoken>=0.8.0",
+    "aiosqlite>=0.20.0",
+    "keyring>=25.0.0",
+    "pywebview>=5.0",
+    "pystray>=0.19",
+    "Pillow>=10.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0", "pytest-cov>=6.0.0", "ruff>=0.8.0", "mypy>=1.13.0"]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "types-requests",
+]
+browser = [
+    "playwright>=1.49.0",
+]
+telegram = [
+    "python-telegram-bot>=21.7",
+]
+
+[project.scripts]
+personal-ai = "app.desktop.launcher:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -45,7 +71,18 @@ ignore = ["E501", "E402", "B027"]
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/main.py"]

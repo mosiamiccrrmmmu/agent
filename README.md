@@ -1,8 +1,8 @@
-# Personal AI Agent
+# Personal AI
 
-**My Personal AI Operating System** — Phase 2
+**Windows Desktop Application** + Agent Core (Phase 1 & 2)
 
-A production-oriented Personal AI Agent with real-world integrations, permissions, and human-in-the-loop approvals.
+A professional Personal AI assistant: installable on Windows, with a modern desktop UI, system tray, secure credential storage, and the full Agent architecture underneath.
 
 ---
 
@@ -10,73 +10,62 @@ A production-oriented Personal AI Agent with real-world integrations, permission
 
 | Phase | Status |
 |-------|--------|
-| Phase 1 — Core Agent, LLM, Tools, Permissions, Memory | ✅ Complete |
-| Phase 2 — Integrations (Telegram, Gmail, Calendar, Browser, Computer, WhatsApp, Scheduler) | ✅ Scaffolding + tools + API (OAuth live flows require user credentials) |
+| Phase 1 — Agent Core, LLM, Tools, Permissions, Memory | Complete |
+| Phase 2 — Integrations | Complete (OAuth live needs credentials) |
+| Final — Windows Desktop Productization | Architecture + UI + lifecycle + build scripts shipped; Windows EXE requires a Windows build agent |
 
 ---
 
-## Architecture (Phase 2)
+## Product experience
 
 ```
-USER → Telegram / API
-         ↓
-   Agent Orchestrator
-         ↓
-   LLM | Memory | Tools
-         ↓
-   Permission + Approval
-         ↓
-   Gmail / Calendar / WhatsApp / Browser / Computer / Scheduler
+Download PersonalAI.exe
+        → Launch Personal AI
+        → First-run: Claude / OpenAI / Mock + API key
+        → Chat · Tasks · Memory · Approvals · Integrations · Activity · Settings
 ```
 
 ---
 
-## Quick Start
+## Architecture
+
+```
+Desktop UI (pywebview / Tauri)
+        → Local FastAPI backend (127.0.0.1)
+        → Agent Orchestrator → LLM / Memory / Tools / Permissions
+```
+
+Details: [docs/desktop-architecture.md](docs/desktop-architecture.md)
+
+---
+
+## Quick start (development)
 
 ```bash
 cp .env.example .env
-# SECRET_KEY + optional TELEGRAM_BOT_TOKEN / Google OAuth / etc.
-# DEFAULT_LLM_PROVIDER=mock  # for local tests without LLM keys
-
-pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
+pip install -e ".[dev]" pywebview
+python run_personal_ai.py
+# or: ./scripts/run_backend_desktop.sh
 ```
 
 ```bash
-curl http://localhost:8000/api/v1/health
-curl http://localhost:8000/api/v1/integrations
-curl http://localhost:8000/api/v1/tools
-```
-
-Docker:
-
-```bash
-docker compose up --build
+curl http://127.0.0.1:8765/api/v1/health
+curl http://127.0.0.1:8765/api/v1/desktop/setup/status
 ```
 
 ---
 
-## Phase 2 Capabilities
+## Windows EXE build
 
-| Integration | Status | Notes |
-|-------------|--------|-------|
-| Telegram interface | ✅ | Commands + NL → agent; webhook endpoint |
-| Gmail tools | ✅ interface | OAuth required for live mail; `send_email` = HIGH risk |
-| Google Calendar | ✅ interface | OAuth required; create event supports approval path |
-| Browser (Playwright) | ✅ | Isolated session; navigate + extract |
-| Computer Use | ✅ | Policy-gated actions; HIGH needs approval |
-| WhatsApp | ✅ abstraction | Business API vs Web documented; send = HIGH risk |
-| Scheduler | ✅ | one_time / daily / interval |
-| Notifications | ✅ base | Telegram provider ready |
-| Voice | ✅ foundation | STT/TTS pipeline stub |
-| Workflows | ✅ foundation | Morning briefing template |
-| Run history + cost limits | ✅ | `/runs`, `/runs/cost` |
-| Integration health | ✅ | `/integrations` |
+On a Windows PC with Python 3.11+:
 
-### WhatsApp honesty
+```powershell
+.\scripts\build_exe.ps1
+```
 
-- **WhatsApp Business API** — official path when token configured.
-- **WhatsApp Web automation** — not an official API; high ban/ToS risk; implemented only as explicit provider class with documentation, not as a silent default.
+Output: `dist\PersonalAI.exe` — double-click to open. No Python required for end users.
+
+See [docs/windows-build.md](docs/windows-build.md).
 
 ---
 
@@ -84,22 +73,11 @@ docker compose up --build
 
 ```bash
 export SECRET_KEY=test-secret-key-at-least-16-chars
-export DATABASE_URL=postgresql+asyncpg://agent:agent@localhost:5432/test
-export DATABASE_URL_SYNC=postgresql://agent:agent@localhost:5432/test
+export DATABASE_URL=sqlite+aiosqlite:///./test.db
+export DATABASE_URL_SYNC=sqlite:///./test.db
 export DEFAULT_LLM_PROVIDER=mock
-pytest -v
-# 34 tests including Phase 2 policy, telegram, health, scheduler
+pytest -q
 ```
-
----
-
-## Security
-
-- Secrets via env only
-- OAuth tokens in encrypted credential store (never to LLM)
-- HIGH/CRITICAL tools require approval
-- Computer policy blocks dangerous hotkeys
-- Cost daily/monthly limits
 
 ---
 

@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check app tests || true
+      - name: Tests
+        env:
+          SECRET_KEY: test-secret-key-at-least-16-chars
+          DATABASE_URL: sqlite+aiosqlite:///./ci.db
+          DATABASE_URL_SYNC: sqlite:///./ci.db
+          DEFAULT_LLM_PROVIDER: mock
+          APP_ENV: development
+          DEBUG: "true"
+        run: pytest -q

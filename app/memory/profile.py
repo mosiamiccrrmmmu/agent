@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-"""User Profile memory."""
+"""User Profile memory — SQLite-backed."""
 
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from app.database.sqlite_store import SQLiteStore, get_store
 
 
 class UserProfile(BaseModel):
@@ -21,15 +23,23 @@ class UserProfile(BaseModel):
 
 
 class ProfileStore:
-    """In-memory profile store for MVP."""
+    """Durable profile store."""
 
-    def __init__(self) -> None:
-        self._profiles: dict[str, UserProfile] = {}
+    def __init__(self, store: SQLiteStore | None = None) -> None:
+        self._store = store or get_store()
 
     def get(self, user_id: str = "default") -> UserProfile:
-        if user_id not in self._profiles:
-            self._profiles[user_id] = UserProfile(user_id=user_id)
-        return self._profiles[user_id]
+        data = self._store.profile_get(user_id)
+        if not data:
+            profile = UserProfile(user_id=user_id)
+            self._store.profile_set(user_id, profile.model_dump(mode="json"))
+            return profile
+        if "updated_at" in data and isinstance(data["updated_at"], str):
+            try:
+                data["updated_at"] = datetime.fromisoformat(data["updated_at"])
+            except ValueError:
+                data["updated_at"] = datetime.utcnow()
+        return UserProfile(**data)
 
     def update(self, user_id: str = "default", **kwargs: Any) -> UserProfile:
         profile = self.get(user_id)
@@ -37,4 +47,5 @@ class ProfileStore:
             if hasattr(profile, k):
                 setattr(profile, k, v)
         profile.updated_at = datetime.utcnow()
+        self._store.profile_set(user_id, profile.model_dump(mode="json"))
         return profile

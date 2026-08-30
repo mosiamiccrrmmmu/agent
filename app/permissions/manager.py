@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Permission Manager — decides whether a tool may run and creates approval requests."""
+"""Permission Manager — gatekeeper with SQLite-persisted approvals."""
 
 import hashlib
 import json
@@ -9,6 +9,7 @@ from typing import Any
 
 from app.config import get_settings
 from app.core.logging import get_logger
+from app.database.sqlite_store import SQLiteStore, get_store
 from app.permissions.models import ApprovalRequest, ApprovalStatus, PermissionDecision
 from app.tools.base import RiskLevel
 
@@ -16,7 +17,6 @@ logger = get_logger(__name__)
 
 
 def canonical_action_hash(tool_name: str, arguments: dict[str, Any]) -> str:
-    """Stable hash of tool + sorted JSON arguments."""
     payload = json.dumps(
         {"tool": tool_name, "args": arguments}, sort_keys=True, default=str, separators=(",", ":")
     )
@@ -24,10 +24,11 @@ def canonical_action_hash(tool_name: str, arguments: dict[str, Any]) -> str:
 
 
 class PermissionManager:
-    """Central gatekeeper for tool execution."""
+    """Central gatekeeper — approvals survive restart via SQLite."""
 
-    def __init__(self) -> None:
-        self._pending: dict[str, ApprovalRequest] = {}
+    def __init__(self, store: SQLiteStore | None = None) -> None:
+        self._store = store or get_store()
+        self._cache: dict[str, ApprovalRequest] = {}
 
     def check(
         self,
@@ -93,7 +94,8 @@ class PermissionManager:
             session_id=session_id,
             message_to_user=message,
         )
-        self._pending[request.id] = request
+        self._cache[request.id] = request
+        self._persist(request)
         logger.info(
             "approval_requested",
             approval_id=request.id,
@@ -103,10 +105,24 @@ class PermissionManager:
         )
         return request
 
+    def _persist(self, request: ApprovalRequest) -> None:
+        self._store.approval_save(request.model_dump(mode="json"))
+
+    def _load(self, approval_id: str) -> ApprovalRequest | None:
+        if approval_id in self._cache:
+            return self._cache[approval_id]
+        row = self._store.approval_get(approval_id)
+        if not row:
+            return None
+        req = ApprovalRequest(**row)
+        self._cache[approval_id] = req
+        return req
+
     def get_pending(self, approval_id: str) -> ApprovalRequest | None:
-        req = self._pending.get(approval_id)
+        req = self._load(approval_id)
         if req and req.is_expired() and req.status == ApprovalStatus.PENDING:
             req.status = ApprovalStatus.EXPIRED
+            self._persist(req)
         return req
 
     def resolve(
@@ -116,11 +132,12 @@ class PermissionManager:
         resolved_by: str = "user",
         edited_payload: dict[str, Any] | None = None,
     ) -> ApprovalRequest | None:
-        request = self._pending.get(approval_id)
+        request = self._load(approval_id)
         if not request:
             return None
         if request.is_expired():
             request.status = ApprovalStatus.EXPIRED
+            self._persist(request)
             return request
         if request.consumed or request.status in (
             ApprovalStatus.CONSUMED,
@@ -133,15 +150,11 @@ class PermissionManager:
         request.resolved_at = datetime.utcnow()
         request.resolved_by = resolved_by
         if edited_payload is not None:
-            # Re-bind hash to edited payload — original approval does not cover new args
             request.edited_payload = edited_payload
             request.action_hash = canonical_action_hash(request.tool_name, edited_payload)
             request.status = ApprovalStatus.EDITED
-        logger.info(
-            "approval_resolved",
-            approval_id=approval_id,
-            status=request.status.value,
-        )
+        self._persist(request)
+        logger.info("approval_resolved", approval_id=approval_id, status=request.status.value)
         return request
 
     def consume(
@@ -150,12 +163,12 @@ class PermissionManager:
         tool_name: str,
         arguments: dict[str, Any],
     ) -> tuple[bool, str]:
-        """Validate binding and mark approval as consumed (single use)."""
         request = self.get_pending(approval_id)
         if not request:
             return False, "approval_not_found"
         if request.is_expired():
             request.status = ApprovalStatus.EXPIRED
+            self._persist(request)
             return False, "approval_expired"
         if request.consumed or request.status == ApprovalStatus.CONSUMED:
             return False, "approval_already_consumed"
@@ -170,15 +183,20 @@ class PermissionManager:
             return False, "argument_mismatch"
         request.consumed = True
         request.status = ApprovalStatus.CONSUMED
+        self._persist(request)
         return True, "ok"
 
     def list_pending(self) -> list[ApprovalRequest]:
+        rows = self._store.approval_list_pending()
         out: list[ApprovalRequest] = []
-        for r in self._pending.values():
-            if r.is_expired() and r.status == ApprovalStatus.PENDING:
-                r.status = ApprovalStatus.EXPIRED
-            if r.status == ApprovalStatus.PENDING:
-                out.append(r)
+        for row in rows:
+            req = ApprovalRequest(**row)
+            if req.is_expired():
+                req.status = ApprovalStatus.EXPIRED
+                self._persist(req)
+                continue
+            self._cache[req.id] = req
+            out.append(req)
         return out
 
 

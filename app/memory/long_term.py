@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-"""Long-term memory (facts the user wants the agent to remember)."""
+"""Long-term memory — SQLite-backed for desktop durability."""
 
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+
+from app.database.sqlite_store import SQLiteStore, get_store
 
 
 class MemoryItem(BaseModel):
@@ -21,48 +23,45 @@ class MemoryItem(BaseModel):
 
 
 class LongTermMemory:
-    """Simple in-memory store for MVP. Later backed by PostgreSQL."""
+    """Durable long-term memory (SQLite)."""
 
-    def __init__(self) -> None:
-        self._items: dict[str, MemoryItem] = {}
+    def __init__(self, store: SQLiteStore | None = None) -> None:
+        self._store = store or get_store()
 
-    def add(self, content: str, category: str = "general", source: str = "user", **meta: Any) -> MemoryItem:
+    def add(
+        self, content: str, category: str = "general", source: str = "user", **meta: Any
+    ) -> MemoryItem:
         item = MemoryItem(content=content, category=category, source=source, metadata=meta)
-        self._items[item.id] = item
+        self._store.ltm_add(
+            item.id,
+            item.content,
+            category=item.category,
+            source=item.source,
+            metadata=item.metadata,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
         return item
 
     def get(self, item_id: str) -> MemoryItem | None:
-        return self._items.get(item_id)
+        row = self._store.ltm_get(item_id)
+        if not row:
+            return None
+        return MemoryItem(**row)
 
     def list(self, category: str | None = None, active_only: bool = True) -> list[MemoryItem]:
-        items = list(self._items.values())
-        if active_only:
-            items = [i for i in items if i.active]
-        if category:
-            items = [i for i in items if i.category == category]
-        return sorted(items, key=lambda x: x.created_at, reverse=True)
+        return [MemoryItem(**r) for r in self._store.ltm_list(category=category, active_only=active_only)]
 
     def update(self, item_id: str, content: str | None = None, **kwargs: Any) -> MemoryItem | None:
-        item = self._items.get(item_id)
-        if not item:
-            return None
+        fields: dict[str, Any] = dict(kwargs)
         if content is not None:
-            item.content = content
-        for k, v in kwargs.items():
-            if hasattr(item, k):
-                setattr(item, k, v)
-        item.updated_at = datetime.utcnow()
-        return item
+            fields["content"] = content
+        if not self._store.ltm_update(item_id, **fields):
+            return None
+        return self.get(item_id)
 
     def delete(self, item_id: str) -> bool:
-        item = self._items.get(item_id)
-        if not item:
-            return False
-        item.active = False
-        item.updated_at = datetime.utcnow()
-        return True
+        return self._store.ltm_delete(item_id)
 
     def search(self, query: str) -> list[MemoryItem]:
-        """Naive keyword search for MVP. Will be replaced by semantic search."""
-        q = query.lower()
-        return [i for i in self.list() if q in i.content.lower()]
+        return [MemoryItem(**r) for r in self._store.ltm_search(query)]

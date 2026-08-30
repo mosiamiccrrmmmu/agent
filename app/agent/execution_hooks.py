@@ -9,6 +9,7 @@ from uuid import uuid4
 from app.agent.cancel import clear_agent_cancel, is_agent_cancelled
 from app.agent.lifecycle import AgentLifecycle, AgentState
 from app.agent.planner import DeterministicPlanner
+from app.core.execution_gate import is_blocked
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -44,9 +45,15 @@ def install_execution_hooks() -> None:
 
             _store = SQLiteStore()
 
-        if is_agent_cancelled():
+        if is_blocked() or is_agent_cancelled():
             clear_agent_cancel()
             run_id = str(uuid4())
+            err = "BLOCKED" if is_blocked() else "CANCELLED"
+            msg = (
+                "System is stopped. Use reset-stop to resume."
+                if is_blocked()
+                else "Stopped by user."
+            )
             if _store is not None:
                 with contextlib.suppress(Exception):
                     _store.upsert_agent_run(
@@ -57,14 +64,14 @@ def install_execution_hooks() -> None:
                         goal=user_message[:500],
                         plan=_plan.model_dump(),
                         finished=True,
-                        error="CANCELLED",
+                        error=err,
                         started=True,
                     )
             return AgentRunResult(
                 run_id=run_id,
-                response="Stopped by user.",
+                response=msg,
                 status="cancelled",
-                error="CANCELLED",
+                error=err,
             )
 
         provisional_id = str(uuid4())

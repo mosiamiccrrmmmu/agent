@@ -1,85 +1,148 @@
-"""Computer Use controller — observation/action loop abstraction.
-
-This does NOT grant unrestricted desktop control. Real OS drivers are
-pluggable; the default is a safe no-op simulator for tests.
-"""
+"""Computer Use controller — session limits, emergency stop, audit, driver dispatch."""
 
 from __future__ import annotations
 
+import time
+from datetime import datetime
 from typing import Any
-from uuid import uuid4
 
-from pydantic import BaseModel, Field
-
-from app.computer.policy import ComputerAction, ComputerPolicy
+from app.computer.base import ComputerDriver
+from app.computer.models import (
+    ActionResult,
+    ComputerActionRequest,
+    ComputerActionType,
+    ComputerAuditEntry,
+    ComputerSessionState,
+    Observation,
+)
+from app.computer.policy import ComputerPolicy
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
-class Observation(BaseModel):
-    screenshot_b64: str | None = None
-    text: str = ""
-    metadata: dict[str, Any] = Field(default_factory=dict)
+_EMERGENCY_STOP = False
 
 
-class ActionResult(BaseModel):
-    success: bool
-    observation: Observation = Field(default_factory=Observation)
-    error: str | None = None
-    action_id: str = Field(default_factory=lambda: str(uuid4()))
+def trigger_emergency_stop() -> None:
+    global _EMERGENCY_STOP
+    _EMERGENCY_STOP = True
+    logger.warning("computer_emergency_stop")
+
+
+def clear_emergency_stop() -> None:
+    global _EMERGENCY_STOP
+    _EMERGENCY_STOP = False
+
+
+def is_emergency_stopped() -> bool:
+    return _EMERGENCY_STOP
 
 
 class ComputerController:
-    def __init__(self, policy: ComputerPolicy | None = None) -> None:
+    def __init__(
+        self,
+        driver: ComputerDriver,
+        policy: ComputerPolicy | None = None,
+    ) -> None:
+        self.driver = driver
         self.policy = policy or ComputerPolicy()
-        self._action_count = 0
-        self._session_id = str(uuid4())
+        self.state = ComputerSessionState()
+        self.audit: list[ComputerAuditEntry] = []
 
     def reset(self) -> None:
-        self._action_count = 0
-        self._session_id = str(uuid4())
+        self.state = ComputerSessionState()
+        clear_emergency_stop()
+
+    def cancel(self) -> None:
+        self.state.cancelled = True
+        trigger_emergency_stop()
 
     async def act(
         self,
-        action: ComputerAction,
+        action: ComputerActionType | str,
         *,
         approved: bool = False,
+        approval_id: str | None = None,
+        window_title: str = "",
         **params: Any,
     ) -> ActionResult:
-        if self._action_count >= self.policy.max_actions:
+        if isinstance(action, str):
+            try:
+                action = ComputerActionType(action)
+            except ValueError:
+                return ActionResult(success=False, error=f"Unknown action: {action}")
+
+        if is_emergency_stopped() or self.state.cancelled:
+            return ActionResult(success=False, error="Computer Use cancelled (emergency stop)")
+
+        elapsed = (datetime.utcnow() - self.state.start_time).total_seconds()
+        if elapsed > self.policy.max_runtime_seconds:
+            self.state.timed_out = True
             return ActionResult(
                 success=False,
-                error=f"max_actions ({self.policy.max_actions}) reached — stopping to avoid loops",
+                error=f"Computer Use timeout ({self.policy.max_runtime_seconds}s)",
             )
 
-        if self.policy.requires_approval(action) and not approved:
+        if self.state.action_count >= self.policy.max_actions:
             return ActionResult(
                 success=False,
-                error=f"Action {action.value} requires human approval",
+                error=f"max_actions ({self.policy.max_actions}) reached",
             )
 
-        if action == ComputerAction.HOTKEY and self.policy.is_hotkey_blocked(
-            str(params.get("keys", ""))
-        ):
-            return ActionResult(success=False, error="Hotkey blocked by ComputerPolicy")
+        try:
+            req = ComputerActionRequest(action=action, **params)
+            params = req.to_params()
+        except Exception as exc:
+            return ActionResult(success=False, error=f"Invalid arguments: {exc}")
 
-        self._action_count += 1
+        text = str(params.get("text", "") or "")
+        risk = self.policy.risk_for(action, window_title=window_title, text=text)
+        if self.policy.requires_approval(action, window_title=window_title, text=text) and not approved:
+            return ActionResult(
+                success=False,
+                error=f"Action {action.value} requires human approval (risk={risk.value})",
+            )
+
+        if action == ComputerActionType.HOTKEY:
+            keys = params.get("keys") or []
+            key_str = "+".join(str(k) for k in keys)
+            if self.policy.is_hotkey_blocked(key_str):
+                return ActionResult(success=False, error="Hotkey blocked by ComputerPolicy")
+
+        if action == ComputerActionType.TYPE and len(text) > self.policy.max_type_length:
+            return ActionResult(success=False, error="Type text exceeds max length")
+
+        self.state.action_count += 1
+        t0 = time.perf_counter()
+        result = await self.driver.execute(action, params)
+        duration = (time.perf_counter() - t0) * 1000
+        result.duration_ms = duration
+
+        target = ""
+        if "x" in params and "y" in params:
+            target = f"{params.get('x')},{params.get('y')}"
+        elif text:
+            target = f"text_len={len(text)}"
+        entry = ComputerAuditEntry(
+            run_id=self.state.run_id,
+            action=action.value,
+            target=target,
+            application=window_title or (result.observation.active_window_title or ""),
+            risk=risk.value,
+            approval_id=approval_id,
+            result="ok" if result.success else (result.error or "error"),
+            duration_ms=duration,
+        )
+        self.audit.append(entry)
         logger.info(
             "computer_action",
-            session=self._session_id,
+            run_id=self.state.run_id,
             action=action.value,
-            count=self._action_count,
+            count=self.state.action_count,
+            success=result.success,
+            driver=self.driver.name,
         )
+        return result
 
-        # Safe simulator — real backends (Playwright desktop, OS APIs) plug in here
-        return ActionResult(
-            success=True,
-            observation=Observation(
-                text=f"Simulated {action.value} with {params}",
-                metadata={"simulated": True, "action_count": self._action_count},
-            ),
-        )
-
-    async def screenshot(self) -> ActionResult:
-        return await self.act(ComputerAction.SCREENSHOT)
+    async def observe(self) -> Observation:
+        return await self.driver.observe()

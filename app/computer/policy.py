@@ -1,60 +1,85 @@
-"""Computer Use security policy.
-
-HIGH and CRITICAL actions require explicit user approval.
-"""
+"""Risk policy for Computer Use actions."""
 
 from __future__ import annotations
 
-from enum import StrEnum
-
-from pydantic import BaseModel, Field
-
+from app.computer.models import ComputerActionType
 from app.tools.base import RiskLevel
 
-
-class ComputerAction(StrEnum):
-    SCREENSHOT = "screenshot"
-    SCROLL = "scroll"
-    CLICK = "click"
-    DOUBLE_CLICK = "double_click"
-    TYPE = "type"
-    HOTKEY = "hotkey"
-    WAIT = "wait"
-    OPEN_APP = "open_app"
-    NAVIGATE = "navigate"
+ComputerAction = ComputerActionType
 
 
-ACTION_RISK: dict[ComputerAction, RiskLevel] = {
-    ComputerAction.SCREENSHOT: RiskLevel.LOW,
-    ComputerAction.SCROLL: RiskLevel.LOW,
-    ComputerAction.WAIT: RiskLevel.LOW,
-    ComputerAction.NAVIGATE: RiskLevel.LOW,
-    ComputerAction.CLICK: RiskLevel.MEDIUM,
-    ComputerAction.TYPE: RiskLevel.MEDIUM,
-    ComputerAction.DOUBLE_CLICK: RiskLevel.MEDIUM,
-    ComputerAction.HOTKEY: RiskLevel.HIGH,
-    ComputerAction.OPEN_APP: RiskLevel.HIGH,
-}
+class ComputerPolicy:
+    max_actions: int = 40
+    max_runtime_seconds: float = 180.0
+    max_type_length: int = 2000
+    max_repeated_clicks: int = 10
 
-
-class ComputerPolicy(BaseModel):
-    max_actions: int = 30
-    timeout_seconds: int = 120
-    max_retries: int = 2
-    allow_high_without_approval: bool = False
-    blocked_hotkeys: list[str] = Field(
-        default_factory=lambda: ["ctrl+shift+delete", "alt+f4", "cmd+q"]
+    SENSITIVE_TITLE_MARKERS = (
+        "password",
+        "credential",
+        "1password",
+        "bitwarden",
+        "lastpass",
+        "keepass",
+        "bank",
+        "banking",
+        "uac",
+        "user account control",
+        "credential manager",
     )
 
-    def risk_for(self, action: ComputerAction) -> RiskLevel:
-        return ACTION_RISK.get(action, RiskLevel.HIGH)
+    BLOCKED_HOTKEYS = {
+        "alt+f4",
+        "ctrl+alt+del",
+        "win+l",
+    }
 
-    def requires_approval(self, action: ComputerAction) -> bool:
-        risk = self.risk_for(action)
-        if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-            return not self.allow_high_without_approval
-        return False
+    def risk_for(
+        self,
+        action: ComputerActionType,
+        *,
+        window_title: str = "",
+        text: str = "",
+    ) -> RiskLevel:
+        title = (window_title or "").lower()
+        if any(m in title for m in self.SENSITIVE_TITLE_MARKERS):
+            return RiskLevel.CRITICAL
 
-    def is_hotkey_blocked(self, hotkey: str) -> bool:
-        normalized = hotkey.lower().replace(" ", "")
-        return normalized in {h.lower().replace(" ", "") for h in self.blocked_hotkeys}
+        low = {
+            ComputerActionType.OBSERVE,
+            ComputerActionType.SCREENSHOT,
+            ComputerActionType.WINDOW_LIST,
+            ComputerActionType.MOVE,
+            ComputerActionType.SCROLL,
+        }
+        medium = {
+            ComputerActionType.CLICK,
+            ComputerActionType.DOUBLE_CLICK,
+            ComputerActionType.RIGHT_CLICK,
+            ComputerActionType.DRAG,
+            ComputerActionType.TYPE,
+            ComputerActionType.PRESS,
+            ComputerActionType.FOCUS_WINDOW,
+        }
+        high = {ComputerActionType.HOTKEY}
+        if action in low:
+            return RiskLevel.LOW
+        if action in medium:
+            return RiskLevel.MEDIUM
+        if action in high:
+            return RiskLevel.HIGH
+        return RiskLevel.HIGH
+
+    def requires_approval(
+        self,
+        action: ComputerActionType,
+        *,
+        window_title: str = "",
+        text: str = "",
+    ) -> bool:
+        risk = self.risk_for(action, window_title=window_title, text=text)
+        return risk in (RiskLevel.HIGH, RiskLevel.CRITICAL)
+
+    def is_hotkey_blocked(self, keys: str) -> bool:
+        normalized = keys.lower().replace(" ", "")
+        return normalized in self.BLOCKED_HOTKEYS

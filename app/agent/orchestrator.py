@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.agent.cancel import clear_agent_cancel, is_agent_cancelled
 from app.config import get_settings
+from app.core.execution_gate import is_blocked
 from app.core.logging import get_logger
 from app.llm.base import Message, MessageRole, ToolCall, ToolDefinition
 from app.llm.factory import TaskType, llm_factory
@@ -108,6 +109,13 @@ class AgentOrchestrator:
         max_steps = max_steps or settings.max_agent_steps
         run_id = str(uuid4())
         start = time.perf_counter()
+        if is_blocked():
+            return AgentRunResult(
+                run_id=run_id,
+                response="System is stopped. Use reset-stop to resume.",
+                status="cancelled",
+                error="BLOCKED",
+            )
 
         tools_used: list[str] = []
         total_tokens = 0
@@ -154,7 +162,7 @@ class AgentOrchestrator:
         try:
             async with asyncio.timeout(settings.agent_timeout_seconds):
                 while steps < max_steps:
-                    if is_agent_cancelled():
+                    if is_agent_cancelled() or is_blocked():
                         return _cancelled_result(
                             run_id=run_id,
                             tools_used=tools_used,
@@ -203,7 +211,7 @@ class AgentOrchestrator:
                     )
 
                     for tc in response.tool_calls:
-                        if is_agent_cancelled():
+                        if is_agent_cancelled() or is_blocked():
                             return _cancelled_result(
                                 run_id=run_id,
                                 tools_used=tools_used,
@@ -309,7 +317,7 @@ class AgentOrchestrator:
         user_id: str = "default",
         session_id: str = "default",
     ) -> ToolResult:
-        if is_agent_cancelled():
+        if is_agent_cancelled() or is_blocked():
             return ToolResult(success=False, error="CANCELLED")
 
         tool = tool_registry.get(tool_call.name)

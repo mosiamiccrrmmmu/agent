@@ -169,7 +169,9 @@ class AgentOrchestrator:
 
                     for tc in response.tool_calls:
                         tools_used.append(tc.name)
-                        result = await self._execute_tool(tc, user_id=user_id)
+                        result = await self._execute_tool(
+                            tc, user_id=user_id, session_id=session_id
+                        )
 
                         if result.requires_approval and result.approval_id:
                             duration = (time.perf_counter() - start) * 1000
@@ -254,7 +256,12 @@ class AgentOrchestrator:
                 error=str(exc),
             )
 
-    async def _execute_tool(self, tool_call: ToolCall, user_id: str = "default") -> ToolResult:
+    async def _execute_tool(
+        self,
+        tool_call: ToolCall,
+        user_id: str = "default",
+        session_id: str = "default",
+    ) -> ToolResult:
         tool = tool_registry.get(tool_call.name)
         if tool is None:
             return ToolResult(success=False, error=f"Unknown tool: {tool_call.name}")
@@ -264,6 +271,7 @@ class AgentOrchestrator:
             risk_level=tool.metadata.risk_level,
             arguments=tool_call.arguments,
             user_id=user_id,
+            session_id=session_id,
         )
 
         if decision.requires_approval and decision.approval_request:
@@ -286,7 +294,7 @@ class AgentOrchestrator:
         edited_payload: dict[str, Any] | None = None,
         session_id: str = "default",
     ) -> AgentRunResult:
-        """Continue after human approval."""
+        """Continue after human approval — single-use, argument-bound."""
         status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
         request = permission_manager.resolve(
             approval_id, status, edited_payload=edited_payload
@@ -299,6 +307,14 @@ class AgentOrchestrator:
                 error="approval_not_found",
             )
 
+        if request.status == ApprovalStatus.EXPIRED:
+            return AgentRunResult(
+                run_id=str(uuid4()),
+                response="Approval request has expired. Please try the action again.",
+                status="error",
+                error="approval_expired",
+            )
+
         if not approved:
             return AgentRunResult(
                 run_id=str(uuid4()),
@@ -306,7 +322,18 @@ class AgentOrchestrator:
                 status="completed",
             )
 
-        payload = edited_payload or request.details
+        payload = edited_payload if edited_payload is not None else request.details
+        ok, reason = permission_manager.consume(
+            approval_id, request.tool_name, payload
+        )
+        if not ok:
+            return AgentRunResult(
+                run_id=str(uuid4()),
+                response=f"Approval could not be used: {reason}",
+                status="error",
+                error=reason,
+            )
+
         result = await tool_registry.execute(request.tool_name, payload)
 
         if result.success:

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-"""API routes — Phase 1 + Phase 2."""
+"""API routes — Phase 1 + Phase 2 with LocalAuth on sensitive endpoints."""
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.agent.orchestrator import AgentOrchestrator, AgentRunResult
 from app.config import get_settings
 from app.core.logging import get_logger
+from app.desktop.auth import local_auth
 from app.permissions.manager import permission_manager
 from app.tools.registry import tool_registry
 
@@ -17,6 +18,16 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 orchestrator = AgentOrchestrator()
+
+
+def require_auth(
+    x_personal_ai_token: Annotated[str | None, Header()] = None,
+) -> None:
+    settings = get_settings()
+    if not settings.require_local_auth:
+        return
+    if not local_auth.validate(x_personal_ai_token):
+        raise HTTPException(status_code=401, detail="Invalid or missing local API token")
 
 
 class ChatRequest(BaseModel):
@@ -44,11 +55,20 @@ class ScheduleTaskRequest(BaseModel):
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "personal-ai-agent", "phase": "2"}
+    settings = get_settings()
+    return {
+        "status": "ok",
+        "service": "personal-ai-agent",
+        "version": settings.app_version,
+        "phase": "2",
+    }
 
 
 @router.get("/integrations")
-async def integrations(user_id: str = "default") -> dict[str, Any]:
+async def integrations(
+    user_id: str = "default",
+    _: None = Depends(require_auth),
+) -> dict[str, Any]:
     from app.observability.health import check_integrations
 
     report = check_integrations(user_id)
@@ -56,7 +76,7 @@ async def integrations(user_id: str = "default") -> dict[str, Any]:
 
 
 @router.post("/chat", response_model=AgentRunResult)
-async def chat(req: ChatRequest) -> AgentRunResult:
+async def chat(req: ChatRequest, _: None = Depends(require_auth)) -> AgentRunResult:
     from app.observability.runs import run_store
 
     ok, reason = run_store.check_cost_limits(req.user_id)
@@ -83,7 +103,9 @@ async def chat(req: ChatRequest) -> AgentRunResult:
 
 
 @router.post("/approvals/resolve", response_model=AgentRunResult)
-async def resolve_approval(req: ApprovalResolveRequest) -> AgentRunResult:
+async def resolve_approval(
+    req: ApprovalResolveRequest, _: None = Depends(require_auth)
+) -> AgentRunResult:
     return await orchestrator.resolve_approval(
         approval_id=req.approval_id,
         approved=req.approved,
@@ -93,25 +115,31 @@ async def resolve_approval(req: ApprovalResolveRequest) -> AgentRunResult:
 
 
 @router.get("/approvals/pending")
-async def list_pending_approvals() -> list[dict[str, Any]]:
+async def list_pending_approvals(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
     pending = permission_manager.list_pending()
     return [p.model_dump(mode="json") for p in pending]
 
 
 @router.get("/tools")
-async def list_tools() -> list[dict[str, Any]]:
+async def list_tools(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
     return [t.model_dump() for t in tool_registry.list_tools()]
 
 
 @router.get("/runs")
-async def list_runs(user_id: str = "default", limit: int = 50) -> list[dict[str, Any]]:
+async def list_runs(
+    user_id: str = "default",
+    limit: int = 50,
+    _: None = Depends(require_auth),
+) -> list[dict[str, Any]]:
     from app.observability.runs import run_store
 
     return [r.model_dump(mode="json") for r in run_store.list_for_user(user_id, limit)]
 
 
 @router.get("/runs/cost")
-async def cost_summary(user_id: str = "default") -> dict[str, Any]:
+async def cost_summary(
+    user_id: str = "default", _: None = Depends(require_auth)
+) -> dict[str, Any]:
     from app.observability.runs import run_store
 
     return {
@@ -122,7 +150,9 @@ async def cost_summary(user_id: str = "default") -> dict[str, Any]:
 
 
 @router.post("/schedule")
-async def schedule_task(req: ScheduleTaskRequest) -> dict[str, Any]:
+async def schedule_task(
+    req: ScheduleTaskRequest, _: None = Depends(require_auth)
+) -> dict[str, Any]:
     from datetime import datetime
 
     from app.scheduler import scheduler
@@ -151,7 +181,9 @@ async def schedule_task(req: ScheduleTaskRequest) -> dict[str, Any]:
 
 
 @router.get("/schedule")
-async def list_scheduled(user_id: str = "default") -> list[dict[str, Any]]:
+async def list_scheduled(
+    user_id: str = "default", _: None = Depends(require_auth)
+) -> list[dict[str, Any]]:
     from app.scheduler import scheduler
 
     return [t.model_dump(mode="json") for t in scheduler.list_tasks(user_id)]

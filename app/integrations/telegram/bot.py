@@ -2,46 +2,41 @@
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from app.config import get_settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-MessageHandler = Callable[[int, str], Awaitable[str]]
-
-
 COMMANDS = {
     "/help": "Show available commands",
-    "/status": "Integration health",
+    "/status": "Integration status",
     "/tasks": "List scheduled tasks",
-    "/memory": "Show recent long-term memories",
-    "/approve": "Approve pending action: /approve <approval_id>",
-    "/reject": "Reject pending action: /reject <approval_id>",
-    "/chat": "Chat with the agent (or just send natural language)",
+    "/memory": "Show recent memories",
+    "/approve": "Approve a pending action: /approve <id>",
+    "/reject": "Reject a pending action: /reject <id>",
+    "/chat": "Talk to the agent",
 }
 
 
 class TelegramInterface:
-    """Handles commands + natural language → Agent."""
-
-    def __init__(self, agent_handler: MessageHandler | None = None) -> None:
-        self.agent_handler = agent_handler
+    def __init__(self, agent_handler: Callable[[int, str], Awaitable[str]] | None = None) -> None:
         settings = get_settings()
-        self.bot_token = settings.telegram_bot_token
+        self.token = settings.telegram_bot_token
         self.allowed_ids = settings.allowed_telegram_user_ids
+        self.agent_handler = agent_handler
 
     def is_authorized(self, user_id: int) -> bool:
         if not self.allowed_ids:
-            return True  # open in dev if not configured
+            return True
         return user_id in self.allowed_ids
 
     async def handle_update(self, update: dict[str, Any]) -> str | None:
         message = update.get("message") or update.get("edited_message")
         if not message:
             return None
-        chat = message.get("chat") or {}
         user = message.get("from") or {}
         user_id = int(user.get("id", 0))
         text = (message.get("text") or "").strip()
@@ -92,7 +87,6 @@ class TelegramInterface:
         if text.startswith("/chat"):
             text = text[len("/chat") :].strip() or "Hello"
 
-        # Natural language → agent
         if self.agent_handler:
             return await self.agent_handler(user_id, text)
         return f"(no agent handler) You said: {text}"

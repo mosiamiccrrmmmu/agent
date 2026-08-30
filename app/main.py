@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -63,9 +62,28 @@ def _register_all_tools() -> None:
         logger.warning("browser_tools_skip", error=str(exc))
 
     try:
-        from app.tools.computer.tools import ComputerActTool
+        from app.tools.apps_tools import LaunchAppTool, ListAppsTool
+
+        tool_registry.register(ListAppsTool())
+        tool_registry.register(LaunchAppTool())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("app_tools_skip", error=str(exc))
+
+    try:
+        from app.tools.files.tools import DeleteFileTool, ListFilesTool, ReadFileTool, WriteFileTool
+
+        tool_registry.register(ListFilesTool())
+        tool_registry.register(ReadFileTool())
+        tool_registry.register(WriteFileTool())
+        tool_registry.register(DeleteFileTool())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("file_tools_skip", error=str(exc))
+
+    try:
+        from app.tools.computer.tools import ComputerActTool, ComputerEmergencyStopTool
 
         tool_registry.register(ComputerActTool())
+        tool_registry.register(ComputerEmergencyStopTool())
     except Exception as exc:  # noqa: BLE001
         logger.warning("computer_tools_skip", error=str(exc))
 

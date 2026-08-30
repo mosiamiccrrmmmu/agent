@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from app.agent.privacy import PrivacyLevel, prefer_local
 from app.config import get_settings
 from app.core.logging import get_logger
+from app.core.network import NetworkMode, probe_internet
 from app.llm.base import LLMProvider
 from app.llm.factory import LLMFactory, llm_factory
 
@@ -37,10 +39,26 @@ class ModelRouter:
         preferred: str | None = None,
         offline: bool = False,
         allow_fallback: bool = False,
+        privacy: PrivacyLevel | str = PrivacyLevel.STANDARD,
     ) -> RouteDecision:
         settings = get_settings()
-        if offline:
-            return RouteDecision("local", RouteReason.OFFLINE, "offline mode requested")
+        if isinstance(privacy, str):
+            try:
+                privacy = PrivacyLevel(privacy.lower())
+            except ValueError:
+                privacy = PrivacyLevel.STANDARD
+        if offline or privacy == PrivacyLevel.STRICT:
+            return RouteDecision(
+                "local",
+                RouteReason.OFFLINE if offline else RouteReason.EXPLICIT,
+                "offline" if offline else "privacy_strict_local_only",
+            )
+        if preferred and preferred.lower() == "auto":
+            mode = probe_internet()
+            if mode == NetworkMode.OFFLINE:
+                return RouteDecision("local", RouteReason.OFFLINE, "auto: network offline")
+            preferred = None
+        _ = prefer_local  # privacy PRIVATE may prefer local in future routing
         name = (preferred or settings.default_llm_provider or "grok").lower()
         if name == "grok" and not settings.effective_xai_api_key:
             if allow_fallback:
@@ -64,9 +82,13 @@ class ModelRouter:
         preferred: str | None = None,
         offline: bool = False,
         allow_fallback: bool = False,
+        privacy: PrivacyLevel | str = PrivacyLevel.STANDARD,
     ) -> tuple[LLMProvider, RouteDecision]:
         decision = self.decide(
-            preferred=preferred, offline=offline, allow_fallback=allow_fallback
+            preferred=preferred,
+            offline=offline,
+            allow_fallback=allow_fallback,
+            privacy=privacy,
         )
         provider = self.factory.get_provider(decision.provider_name)
         logger.info(

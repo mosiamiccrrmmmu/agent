@@ -1,4 +1,4 @@
-"""CLI: smoke-grok, release-audit.
+"""CLI: smoke-grok, release-audit, audit-fake-success.
 
 Never prints API keys.
 """
@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import platform
+import re
 import sys
 from pathlib import Path
 
@@ -107,11 +109,11 @@ async def smoke_grok() -> int:
     return 0
 
 
-def release_audit() -> int:
-    lines: list[tuple[str, str]] = []
+def release_audit(*, as_json: bool = False) -> int:
+    rows: list[tuple[str, str]] = []
 
     def row(name: str, status: str) -> None:
-        lines.append((name, status))
+        rows.append((name, status))
 
     try:
         from app.agent.orchestrator import AgentOrchestrator  # noqa: F401
@@ -119,6 +121,13 @@ def release_audit() -> int:
         row("Agent Core", "PASS")
     except Exception as exc:
         row("Agent Core", f"FAIL ({exc})")
+
+    try:
+        from app.agent.lifecycle import AgentLifecycle  # noqa: F401
+
+        row("Agent Lifecycle", "PASS")
+    except Exception as exc:
+        row("Agent Lifecycle", f"FAIL ({exc})")
 
     try:
         from app.llm.factory import LLMFactory
@@ -140,11 +149,16 @@ def release_audit() -> int:
         row("LLM Factory", f"FAIL ({exp})")
 
     try:
-        from app.database.sqlite_store import SQLiteStore  # noqa: F401
+        from app.database.sqlite_store import SQLiteStore
 
+        store = SQLiteStore()
+        if hasattr(store, "upsert_agent_run"):
+            row("SQLite agent_runs", "PASS")
+        else:
+            row("SQLite agent_runs", "FAIL (missing methods)")
         row("SQLite Persistence module", "PASS")
     except Exception as exc:
-        row("SQLite Persistence module", f"FAIL ({exc})")
+        row("SQLite Persistence", f"FAIL ({exc})")
 
     try:
         from app.permissions.manager import PermissionManager  # noqa: F401
@@ -157,12 +171,13 @@ def release_audit() -> int:
         from app.computer.factory import create_driver
 
         d = create_driver(force_mock=True)
-        row("Computer MockDriver", "PASS" if d.name == "mock" else f"UNEXPECTED ({d.name})")
-        if sys.platform.startswith("win") and os.environ.get("COMPUTER_USE_MOCK", "").lower() not in (
-            "1",
-            "true",
-            "yes",
-        ):
+        row(
+            "Computer MockDriver",
+            "PASS" if d.name == "mock" else f"UNEXPECTED ({d.name})",
+        )
+        if sys.platform.startswith("win") and os.environ.get(
+            "COMPUTER_USE_MOCK", ""
+        ).lower() not in ("1", "true", "yes"):
             try:
                 wd = create_driver(force_mock=False)
                 row(
@@ -172,7 +187,10 @@ def release_audit() -> int:
             except Exception as exc:
                 row("Computer WindowsDriver", f"FAIL ({exc})")
         else:
-            row("Computer WindowsDriver", "NOT_VERIFIED (non-Windows or COMPUTER_USE_MOCK)")
+            row(
+                "Computer WindowsDriver",
+                "NOT_VERIFIED (non-Windows or COMPUTER_USE_MOCK)",
+            )
     except Exception as exp:
         row("Computer Use", f"FAIL ({exp})")
 
@@ -220,16 +238,57 @@ def release_audit() -> int:
     row("Platform", platform.platform())
     row("Python", sys.version.split()[0])
 
+    if as_json:
+        print(json.dumps({name: status for name, status in rows}, indent=2))
+        return 0
+
     print("PERSONALAI RELEASE AUDIT")
     print("=" * 48)
-    width = max(len(n) for n, _ in lines)
-    for name, status in lines:
+    width = max(len(n) for n, _ in rows)
+    for name, status in rows:
         print(f"{name.ljust(width)}  {status}")
     print("=" * 48)
-    print("Legend: PASS = evidence in this process; NOT_VERIFIED = needs Windows/key/live run")
+    print(
+        "Legend: PASS = evidence in this process; NOT_VERIFIED = needs Windows/key/live run"
+    )
     print(
         "FINAL: READY FOR WINDOWS ACCEPTANCE (repo baseline) — not WINDOWS DESKTOP RELEASE READY"
     )
+    return 0
+
+
+def audit_fake_success() -> int:
+    root = Path(__file__).resolve().parent.parent / "app"
+    patterns = [
+        re.compile(r"success\s*=\s*True"),
+        re.compile(r'"success"\s*:\s*True'),
+        re.compile(r"message_id\s*=\s*[\"']stub", re.I),
+        re.compile(r"fake[_\s]?result", re.I),
+        re.compile(r"placeholder response", re.I),
+    ]
+    allow_substrings = ("mock_driver", "mock.py", "/tests/", "test_")
+    findings: list[str] = []
+    for path in root.rglob("*.py"):
+        rel = str(path.relative_to(root.parent))
+        if any(a in rel for a in allow_substrings):
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for i, line in enumerate(text.splitlines(), 1):
+            if any(p.search(line) for p in patterns):
+                findings.append(f"{rel}:{i}: {line.strip()[:120]}")
+
+    print("FAKE SUCCESS AUDIT")
+    print("=" * 48)
+    if not findings:
+        print("No suspicious success=True patterns outside mocks (heuristic).")
+        return 0
+    print(f"Found {len(findings)} candidate line(s) — review manually:")
+    for f in findings[:80]:
+        print(f"  {f}")
+    if len(findings) > 80:
+        print(f"  ... +{len(findings) - 80} more")
+    print("=" * 48)
+    print("NOTE: legitimate ToolResult(success=True) after real work is expected.")
     return 0
 
 
@@ -237,12 +296,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("smoke-grok", help="Live Grok API smoke test")
-    sub.add_parser("release-audit", help="Evidence-based release gate report")
+    ra = sub.add_parser("release-audit", help="Evidence-based release gate report")
+    ra.add_argument("--json", action="store_true", help="Machine-readable JSON")
+    sub.add_parser("audit-fake-success", help="Heuristic scan for fake success patterns")
     args = parser.parse_args(argv)
     if args.cmd == "smoke-grok":
         return asyncio.run(smoke_grok())
     if args.cmd == "release-audit":
-        return release_audit()
+        return release_audit(as_json=bool(getattr(args, "json", False)))
+    if args.cmd == "audit-fake-success":
+        return audit_fake_success()
     parser.print_help()
     return 0
 

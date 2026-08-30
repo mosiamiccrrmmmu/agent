@@ -53,6 +53,12 @@ class ScheduleTaskRequest(BaseModel):
     user_id: str = "default"
 
 
+class MemoryAddRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=5000)
+    category: str = "general"
+    user_id: str = "default"
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     settings = get_settings()
@@ -187,6 +193,42 @@ async def list_scheduled(
     from app.scheduler import scheduler
 
     return [t.model_dump(mode="json") for t in scheduler.list_tasks(user_id)]
+
+
+@router.get("/memory")
+async def list_memory(
+    category: str | None = None,
+    _: None = Depends(require_auth),
+) -> list[dict[str, Any]]:
+    from app.memory.long_term import LongTermMemory
+
+    items = LongTermMemory().list(category=category)
+    return [i.model_dump(mode="json") for i in items]
+
+
+@router.post("/memory")
+async def add_memory(req: MemoryAddRequest, _: None = Depends(require_auth)) -> dict[str, Any]:
+    from app.memory.long_term import LongTermMemory
+
+    item = LongTermMemory().add(req.content, category=req.category)
+    return item.model_dump(mode="json")
+
+
+@router.get("/memory/search")
+async def search_memory(q: str, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    from app.memory.long_term import LongTermMemory
+
+    return [i.model_dump(mode="json") for i in LongTermMemory().search(q)]
+
+
+@router.delete("/memory/{item_id}")
+async def delete_memory(item_id: str, _: None = Depends(require_auth)) -> dict[str, str]:
+    from app.memory.long_term import LongTermMemory
+
+    ok = LongTermMemory().delete(item_id)
+    if not ok:
+        raise HTTPException(404, "Memory item not found")
+    return {"status": "deleted", "id": item_id}
 
 
 @router.post("/telegram/webhook")

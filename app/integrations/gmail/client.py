@@ -2,6 +2,9 @@
 
 Tokens come from CredentialStore — never passed to the LLM.
 Send actions must go through PermissionManager (HIGH risk).
+
+Status honesty:
+- Without a valid OAuth token: NOT CONFIGURED (never success=True).
 """
 
 from __future__ import annotations
@@ -39,27 +42,38 @@ class GmailClient:
     def is_connected(self) -> bool:
         return self._token() is not None
 
+    def status(self) -> str:
+        return "connected" if self.is_connected() else "not_configured"
+
     async def list_messages(self, query: str = "", max_results: int = 10) -> list[EmailMessage]:
-        token = self._token()
-        if not token:
+        if not self._token():
             return []
-        logger.info("gmail_list_messages", query=query, max_results=max_results)
+        # Real Gmail API not wired — fail closed with empty + log
+        logger.warning("gmail_list_messages_not_implemented", query=query)
         return []
 
     async def read_message(self, message_id: str) -> EmailMessage | None:
         if not self._token():
             return None
-        logger.info("gmail_read_message", message_id=message_id)
+        logger.warning("gmail_read_message_not_implemented", message_id=message_id)
         return None
 
     async def draft_reply(self, message_id: str, body: str) -> dict[str, Any]:
         if not self._token():
-            return {"success": False, "error": "Gmail not connected"}
-        return {"success": True, "draft_id": "draft-stub", "body": body}
+            return {"success": False, "status": "not_configured", "error": "Gmail not connected"}
+        return {
+            "success": False,
+            "status": "not_implemented",
+            "error": "Gmail draft API not implemented",
+        }
 
     async def send_message(self, to: str, subject: str, body: str) -> dict[str, Any]:
-        """HIGH risk — caller must enforce approval."""
+        """HIGH risk — caller must enforce approval. Never fake success."""
         if not self._token():
-            return {"success": False, "error": "Gmail not connected"}
-        logger.info("gmail_send", to=to, subject=subject)
-        return {"success": True, "message_id": "sent-stub", "note": "Configure real Gmail API"}
+            return {"success": False, "status": "not_configured", "error": "Gmail not connected"}
+        logger.warning("gmail_send_not_implemented", to=to)
+        return {
+            "success": False,
+            "status": "not_implemented",
+            "error": "Gmail send API not implemented — configure Google OAuth and implement Gmail API client",
+        }

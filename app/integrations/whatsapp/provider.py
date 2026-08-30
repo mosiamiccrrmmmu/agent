@@ -4,6 +4,8 @@ IMPORTANT:
 - WhatsApp Business API is the official channel (requires Meta Business setup).
 - WhatsApp Web automation (browser) is unofficial, fragile, and may violate ToS.
   Do not present Web automation as an official API.
+
+Never return success=True for unimplemented sends.
 """
 
 from __future__ import annotations
@@ -48,6 +50,9 @@ class WhatsAppProvider(ABC):
         """HIGH risk — must require approval at tool layer."""
         ...
 
+    def status(self) -> str:
+        return "not_configured"
+
 
 class WhatsAppBusinessProvider(WhatsAppProvider):
     """Official WhatsApp Cloud / Business API adapter."""
@@ -58,19 +63,32 @@ class WhatsAppBusinessProvider(WhatsAppProvider):
         self.access_token = access_token
         self.phone_number_id = phone_number_id
 
+    def status(self) -> str:
+        if self.access_token and self.phone_number_id:
+            return "configured_not_implemented"
+        return "not_configured"
+
     async def list_chats(self, limit: int = 20) -> list[WhatsAppChat]:
         if not self.access_token:
             return []
-        logger.info("whatsapp_business_list_chats")
+        logger.warning("whatsapp_business_list_chats_not_implemented")
         return []
 
     async def read_messages(self, chat_id: str, limit: int = 20) -> list[WhatsAppMessage]:
         return []
 
     async def send_message(self, chat_id: str, body: str) -> dict[str, Any]:
-        if not self.access_token:
-            return {"success": False, "error": "WhatsApp Business not configured"}
-        return {"success": True, "message_id": "wa-biz-stub", "note": "Wire Cloud API"}
+        if not self.access_token or not self.phone_number_id:
+            return {
+                "success": False,
+                "status": "not_configured",
+                "error": "WhatsApp Business not configured (token + phone_number_id required)",
+            }
+        return {
+            "success": False,
+            "status": "not_implemented",
+            "error": "WhatsApp Business Cloud API client not implemented",
+        }
 
 
 class WhatsAppWebProvider(WhatsAppProvider):
@@ -84,6 +102,9 @@ class WhatsAppWebProvider(WhatsAppProvider):
     def __init__(self) -> None:
         self._connected = False
 
+    def status(self) -> str:
+        return "not_implemented"
+
     async def list_chats(self, limit: int = 20) -> list[WhatsAppChat]:
         logger.warning("whatsapp_web_unofficial", action="list_chats")
         return []
@@ -96,5 +117,9 @@ class WhatsAppWebProvider(WhatsAppProvider):
         logger.warning("whatsapp_web_unofficial", action="send_message")
         return {
             "success": False,
-            "error": "WhatsApp Web automation is unofficial; use Business API or enable explicitly",
+            "status": "not_implemented",
+            "error": (
+                "WhatsApp Web automation is unofficial and not implemented. "
+                "Use WhatsApp Business Cloud API when available."
+            ),
         }

@@ -16,9 +16,22 @@ from typing import Any
 
 from app.desktop.paths import get_app_paths
 
+KNOWN_SECRET_NAMES = [
+    "xai_api_key",
+    "grok_api_key",
+    "anthropic_api_key",
+    "openai_api_key",
+    "telegram_bot_token",
+    "google_client_secret",
+    "google_oauth_access",
+    "google_oauth_refresh",
+    "whatsapp_business_token",
+    "local_api_token",
+]
+
 
 class SecureSecretStore:
-    """Store secrets by logical name (e.g. anthropic_api_key)."""
+    """Store secrets by logical name (e.g. xai_api_key)."""
 
     SERVICE = "PersonalAI"
 
@@ -81,19 +94,11 @@ class SecureSecretStore:
 
     def list_names(self) -> list[str]:
         if self._keyring_ok:
-            known = [
-                "anthropic_api_key",
-                "openai_api_key",
-                "telegram_bot_token",
-                "google_client_secret",
-                "whatsapp_business_token",
-                "local_api_token",
-            ]
-            return [n for n in known if self.has(n)]
+            return [n for n in KNOWN_SECRET_NAMES if self.has(n)]
         return sorted(self._load_fallback().keys())
 
     def backend_name(self) -> str:
-        return "keyring" if self._keyring_ok else "encrypted_file"
+        return "keyring" if self._keyring_ok else "encrypted_file_dev_fallback"
 
     def _machine_key(self) -> bytes:
         seed = f"{Path.home()}|{self.SERVICE}|personal-ai-v1"

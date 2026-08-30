@@ -13,13 +13,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["SECRET_KEY"] = "test-secret-key-at-least-16-chars"
-os.environ["DATABASE_URL"] = "postgresql+asyncpg://agent:agent@localhost:5432/test"
-os.environ["DATABASE_URL_SYNC"] = "postgresql://agent:agent@localhost:5432/test"
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_e2e.db"
+os.environ["DATABASE_URL_SYNC"] = "sqlite:///./test_e2e.db"
 os.environ["DEFAULT_LLM_PROVIDER"] = "mock"
 os.environ["APP_ENV"] = "development"
 os.environ["DEBUG"] = "true"
+os.environ["REQUIRE_LOCAL_AUTH"] = "false"
 
 from app.agent.orchestrator import AgentOrchestrator
+from app.config.settings import get_settings
 from app.llm.factory import llm_factory
 from app.llm.mock import MockLLMProvider
 from app.main import create_app
@@ -29,10 +31,12 @@ from app.tools.memory_tools import RecallTool, RememberTool
 from app.tools.registry import tool_registry
 from app.tools.web.search import WebSearchTool
 
+get_settings.cache_clear()
+
 
 @pytest.fixture(autouse=True)
 def setup_mock_and_tools():
-    llm_factory._providers.clear()
+    llm_factory.clear()
     mock = MockLLMProvider(default_response="سلام! من دستیار شخصی شما هستم.")
     llm_factory.register_provider("mock", mock)
     tool_registry._tools.clear()
@@ -41,7 +45,7 @@ def setup_mock_and_tools():
     tool_registry.register(RecallTool())
     permission_manager._pending.clear()
     yield
-    llm_factory._providers.clear()
+    llm_factory.clear()
     tool_registry._tools.clear()
 
 
@@ -60,7 +64,17 @@ def orchestrator():
 def test_health_endpoint(client):
     r = client.get("/api/v1/health")
     assert r.status_code == 200
-    assert r.json()["status"] == "ok"
+    body = r.json()
+    assert body["status"] == "ok"
+    assert "version" in body
+
+
+def test_desktop_setup_status(client):
+    r = client.get("/api/v1/desktop/setup/status")
+    assert r.status_code == 200
+    data = r.json()
+    assert "providers" in data
+    assert data["providers"]["grok"] in ("connected", "not_configured")
 
 
 def test_tools_listed(client):

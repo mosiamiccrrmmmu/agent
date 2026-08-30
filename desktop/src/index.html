@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Personal AI</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --border: #2a2f3a;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --accent: #6c8cff;
+      --ok: #3dd68c;
+      --warn: #f5a524;
+      --err: #f31260;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg); color: var(--text); height: 100vh; display: flex;
+    }
+    nav {
+      width: 200px; background: var(--panel); border-right: 1px solid var(--border);
+      padding: 16px 12px; display: flex; flex-direction: column; gap: 6px;
+    }
+    nav h1 { font-size: 15px; margin: 0 0 12px; letter-spacing: 0.02em; }
+    nav button {
+      background: transparent; border: 0; color: var(--muted); text-align: left;
+      padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 14px;
+    }
+    nav button.active, nav button:hover { background: #222733; color: var(--text); }
+    main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    header {
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    #status { font-size: 12px; color: var(--muted); }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--warn); }
+    .dot.ok { background: var(--ok); }
+    .dot.err { background: var(--err); }
+    section { display: none; flex: 1; flex-direction: column; padding: 16px 20px; overflow: auto; }
+    section.active { display: flex; }
+    #messages { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; }
+    .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; line-height: 1.45; font-size: 14px; white-space: pre-wrap; }
+    .msg.user { align-self: flex-end; background: #2a3555; }
+    .msg.bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+    .composer { display: flex; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+    .composer input, .composer select, input[type=password], input[type=text] {
+      flex: 1; background: var(--panel); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; padding: 12px 14px; font-size: 14px;
+    }
+    button.primary {
+      background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+      padding: 12px 18px; cursor: pointer; font-weight: 600;
+    }
+    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px; margin-bottom: 12px; max-width: 480px;
+    }
+    .card h2 { margin: 0 0 8px; font-size: 16px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: #2a2f3a; }
+    .badge.ok { background: #143d2b; color: var(--ok); }
+    .badge.warn { background: #3d2e14; color: var(--warn); }
+    .badge.err { background: #3d1420; color: var(--err); }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <h1>Personal AI</h1>
+    <button class="active" data-view="chat">Chat</button>
+    <button data-view="approvals">Approvals</button>
+    <button data-view="integrations">Integrations</button>
+    <button data-view="settings">Settings</button>
+    <button data-view="setup">Setup</button>
+  </nav>
+  <main>
+    <header>
+      <div id="title">Chat</div>
+      <div id="status"><span class="dot" id="dot"></span><span id="statusText">Checking…</span></div>
+    </header>
+
+    <section id="view-chat" class="active">
+      <div id="messages"></div>
+      <div class="composer">
+        <input id="chatInput" placeholder="Message Personal AI…" autocomplete="off" />
+        <button class="primary" id="sendBtn">Send</button>
+      </div>
+    </section>
+
+    <section id="view-approvals">
+      <div class="card"><h2>Pending approvals</h2><div id="approvalsList" class="muted">None</div></div>
+    </section>
+
+    <section id="view-integrations">
+      <div class="card">
+        <h2>Integrations</h2>
+        <p class="muted">Status is honest — stubs are never shown as Connected.</p>
+        <div id="integrationsList"></div>
+      </div>
+    </section>
+
+    <section id="view-settings">
+      <div class="card">
+        <h2>Settings</h2>
+        <p class="muted">Data directory and provider are managed on the Setup screen. Secrets are never displayed.</p>
+        <div id="settingsInfo"></div>
+      </div>
+    </section>
+
+    <section id="view-setup">
+      <div class="card">
+        <h2>First-run setup</h2>
+        <p class="muted">Primary provider: <strong>Grok</strong> (xAI). Keys are stored via OS secret store when available.</p>
+        <label>Provider</label>
+        <select id="providerSelect">
+          <option value="grok" selected>Grok (recommended)</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="mock">Mock (offline testing)</option>
+        </select>
+        <label>API key</label>
+        <input type="password" id="apiKey" placeholder="XAI / provider API key" />
+        <div style="margin-top:14px; display:flex; gap:8px;">
+          <button class="primary" id="saveProvider">Save securely</button>
+          <button class="primary" id="testProvider" style="background:#3a4254">Test connection</button>
+        </div>
+        <p id="setupMsg" class="muted" style="margin-top:12px"></p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API = location.origin + "/api/v1";
+    let token = localStorage.getItem("personal_ai_token") || "";
+
+    function headers(json = true) {
+      const h = {};
+      if (json) h["Content-Type"] = "application/json";
+      if (token) h["X-Personal-Ai-Token"] = token;
+      return h;
+    }
+
+    function setStatus(ok, text) {
+      const dot = document.getElementById("dot");
+      dot.className = "dot " + (ok === true ? "ok" : ok === false ? "err" : "");
+      document.getElementById("statusText").textContent = text;
+    }
+
+    document.querySelectorAll("nav button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const view = btn.dataset.view;
+        document.querySelectorAll("section").forEach(s => s.classList.remove("active"));
+        document.getElementById("view-" + view).classList.add("active");
+        document.getElementById("title").textContent = btn.textContent;
+        if (view === "approvals") loadApprovals();
+        if (view === "integrations") loadIntegrations();
+        if (view === "settings") loadSettings();
+      });
+    });
+
+    function addMsg(role, text) {
+      const el = document.createElement("div");
+      el.className = "msg " + (role === "user" ? "user" : "bot");
+      el.textContent = text;
+      document.getElementById("messages").appendChild(el);
+      el.scrollIntoView({ behavior: "smooth" });
+    }
+
+    async function refreshHealth() {
+      try {
+        const r = await fetch(API + "/health");
+        const j = await r.json();
+        setStatus(true, "Backend v" + (j.version || "?") + " · localhost");
+      } catch (e) {
+        setStatus(false, "Backend offline");
+      }
+    }
+
+    async function sendChat() {
+      const input = document.getElementById("chatInput");
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      addMsg("user", text);
+      document.getElementById("sendBtn").disabled = true;
+      try {
+        const r = await fetch(API + "/chat", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ message: text, session_id: "desktop" }),
+        });
+        if (r.status === 401) {
+          addMsg("bot", "Authentication required. Complete Setup and save a provider first.");
+          return;
+        }
+        const j = await r.json();
+        addMsg("bot", j.response || JSON.stringify(j));
+        if (j.status === "needs_approval") addMsg("bot", "Approval required: " + (j.approval_id || ""));
+      } catch (e) {
+        addMsg("bot", "Error: " + e.message);
+      } finally {
+        document.getElementById("sendBtn").disabled = false;
+      }
+    }
+
+    document.getElementById("sendBtn").onclick = sendChat;
+    document.getElementById("chatInput").addEventListener("keydown", e => {
+      if (e.key === "Enter") sendChat();
+    });
+
+    document.getElementById("saveProvider").onclick = async () => {
+      const provider = document.getElementById("providerSelect").value;
+      const api_key = document.getElementById("apiKey").value;
+      const msg = document.getElementById("setupMsg");
+      msg.textContent = "Saving…";
+      try {
+        const r = await fetch(API + "/desktop/setup/provider", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ provider, api_key }),
+        });
+        const j = await r.json();
+        if (j.local_api_token) {
+          token = j.local_api_token;
+          localStorage.setItem("personal_ai_token", token);
+        }
+        msg.textContent = j.message || j.detail || JSON.stringify(j);
+        document.getElementById("apiKey").value = "";
+      } catch (e) {
+        msg.textContent = e.message;
+      }
+    };
+
+    document.getElementById("testProvider").onclick = async () => {
+      const provider = document.getElementById("providerSelect").value;
+      const api_key = document.getElementById("apiKey").value;
+      const msg = document.getElementById("setupMsg");
+      msg.textContent = "Testing…";
+      try {
+        const r = await fetch(API + "/desktop/setup/test-connection", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ provider, api_key: api_key || null }),
+        });
+        const j = await r.json();
+        msg.textContent = (j.status || "") + ": " + (j.message || "");
+      } catch (e) {
+        msg.textContent = e.message;
+      }
+    };
+
+    async function loadApprovals() {
+      const el = document.getElementById("approvalsList");
+      try {
+        const r = await fetch(API + "/approvals/pending", { headers: headers(false) });
+        if (r.status === 401) { el.textContent = "Auth required"; return; }
+        const list = await r.json();
+        el.textContent = list.length ? JSON.stringify(list, null, 2) : "No pending approvals";
+      } catch (e) {
+        el.textContent = e.message;
+      }
+    }
+
+    async function loadIntegrations() {
+      const el = document.getElementById("integrationsList");
+      el.innerHTML = "<p class='muted'>Gmail: <span class='badge warn'>not_configured / not_implemented</span></p>" +
+        "<p class='muted'>Calendar: <span class='badge warn'>not_configured / not_implemented</span></p>" +
+        "<p class='muted'>Telegram: <span class='badge warn'>optional</span></p>" +
+        "<p class='muted'>WhatsApp: <span class='badge err'>not_implemented</span></p>" +
+        "<p class='muted'>Computer Use: <span class='badge warn'>SIMULATOR only</span></p>";
+    }
+
+    async function loadSettings() {
+      const el = document.getElementById("settingsInfo");
+      try {
+        const r = await fetch(API + "/desktop/setup/status");
+        const j = await r.json();
+        el.innerHTML = "<pre class='muted'>" + JSON.stringify(j, null, 2) + "</pre>";
+      } catch (e) {
+        el.textContent = e.message;
+      }
+    }
+
+    refreshHealth();
+    setInterval(refreshHealth, 15000);
+  </script>
+</body>
+</html>

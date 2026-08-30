@@ -1,41 +1,45 @@
 # Personal AI
 
-**Windows Desktop Application** + Agent Core (Phase 1 & 2)
+**Windows Desktop Application** + Agent Core
 
-A professional Personal AI assistant: installable on Windows, with a modern desktop UI, system tray, secure credential storage, and the full Agent architecture underneath.
-
----
-
-## Phase Status
-
-| Phase | Status |
-|-------|--------|
-| Phase 1 — Agent Core, LLM, Tools, Permissions, Memory | Complete |
-| Phase 2 — Integrations | Complete (OAuth live needs credentials) |
-| Final — Windows Desktop Productization | Architecture + UI + lifecycle + build scripts shipped; Windows EXE requires a Windows build agent |
+A Personal AI assistant: local FastAPI backend, pywebview desktop shell, secure credential storage, and provider-agnostic Agent architecture with **Grok (xAI) as the primary LLM**.
 
 ---
 
-## Product experience
+## Status matrix (honest)
 
-```
-Download PersonalAI.exe
-        → Launch Personal AI
-        → First-run: Claude / OpenAI / Mock + API key
-        → Chat · Tasks · Memory · Approvals · Integrations · Activity · Settings
-```
+| Area | Status |
+|------|--------|
+| Agent Core (orchestrator, tools, permissions) | **VERIFIED** (unit/e2e with Mock) |
+| Grok provider class + factory wiring | **VERIFIED** (unit, no live key) |
+| Grok **real API** | **NOT VERIFIED** in CI (requires `XAI_API_KEY`) |
+| OpenAI / Anthropic providers | **IMPLEMENTED** — live **NOT VERIFIED** |
+| Tool validation | **VERIFIED** |
+| Permission + approval binding / replay protection | **VERIFIED** (unit) |
+| Approval **persistence across restart** | **PARTIAL** (in-process; SQLite persistence planned) |
+| Memory (short/long) | **PARTIAL** (in-process; restart loses data) |
+| LocalAuth on API | **VERIFIED** (code path; tests disable auth) |
+| Desktop UI (minimal) | **PARTIAL** (static first-run + chat shell) |
+| Tauri 2 | **NOT IMPLEMENTED** (pywebview is the desktop shell) |
+| Gmail / Calendar | **NOT IMPLEMENTED** (fail closed) |
+| WhatsApp | **NOT IMPLEMENTED** (fail closed) |
+| Telegram | **PARTIAL** |
+| Browser | **PARTIAL** |
+| Computer Use | **SIMULATOR only** — not real OS control |
+| Windows EXE / Installer / Clean VM | **NOT VERIFIED** |
+| Code signing | **NOT IMPLEMENTED** |
+| Auto-update | **NOT IMPLEMENTED** |
 
 ---
 
 ## Architecture
 
 ```
-Desktop UI (pywebview / Tauri)
-        → Local FastAPI backend (127.0.0.1)
-        → Agent Orchestrator → LLM / Memory / Tools / Permissions
+Desktop UI (pywebview → desktop/src)
+        → Local FastAPI (127.0.0.1)
+        → Agent Orchestrator → LLM (Grok / OpenAI / Anthropic / Mock)
+                            → Tools / Permissions / Memory
 ```
-
-Details: [docs/desktop-architecture.md](docs/desktop-architecture.md)
 
 ---
 
@@ -43,9 +47,10 @@ Details: [docs/desktop-architecture.md](docs/desktop-architecture.md)
 
 ```bash
 cp .env.example .env
+# Set XAI_API_KEY for Grok, or DEFAULT_LLM_PROVIDER=mock
 pip install -e ".[dev]" pywebview
+export REQUIRE_LOCAL_AUTH=false   # optional for local curl tests
 python run_personal_ai.py
-# or: ./scripts/run_backend_desktop.sh
 ```
 
 ```bash
@@ -55,17 +60,14 @@ curl http://127.0.0.1:8765/api/v1/desktop/setup/status
 
 ---
 
-## Windows EXE build
+## Grok setup
 
-On a Windows PC with Python 3.11+:
+1. Create an API key at xAI.
+2. Prefer env `XAI_API_KEY` (alias `GROK_API_KEY` accepted).
+3. Or use the Setup screen in the desktop UI — key is stored via keyring when available.
+4. `DEFAULT_LLM_PROVIDER=grok`
 
-```powershell
-.\scripts\build_exe.ps1
-```
-
-Output: `dist\PersonalAI.exe` — double-click to open. No Python required for end users.
-
-See [docs/windows-build.md](docs/windows-build.md).
+Supported factory providers: `grok`, `openai`, `anthropic`, `mock`.
 
 ---
 
@@ -76,8 +78,22 @@ export SECRET_KEY=test-secret-key-at-least-16-chars
 export DATABASE_URL=sqlite+aiosqlite:///./test.db
 export DATABASE_URL_SYNC=sqlite:///./test.db
 export DEFAULT_LLM_PROVIDER=mock
+export REQUIRE_LOCAL_AUTH=false
 pytest -q
+ruff check app tests
 ```
+
+---
+
+## Windows EXE (developer)
+
+On Windows with Python 3.11+:
+
+```powershell
+.\scripts\build_exe.ps1
+```
+
+Output: `dist\PersonalAI.exe`. **Clean-machine and installer verification are still required before calling a release READY.**
 
 ---
 

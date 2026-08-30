@@ -16,7 +16,7 @@ from typing import Any, Iterator
 
 from app.desktop.paths import get_app_paths
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -74,6 +74,23 @@ CREATE TABLE IF NOT EXISTS approvals (
     resolved_by TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+    run_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL DEFAULT 'default',
+    user_id TEXT NOT NULL DEFAULT 'default',
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    goal TEXT NOT NULL DEFAULT '',
+    plan_json TEXT NOT NULL DEFAULT '{}',
+    current_step INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_runs_session ON agent_runs(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON agent_runs(status);
 
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
     id TEXT PRIMARY KEY,
@@ -474,6 +491,10 @@ class SQLiteStore:
                 (key, value),
             )
 
+
+from app.database.run_store_mixin import attach_run_methods
+
+attach_run_methods(SQLiteStore)
 
 _store: SQLiteStore | None = None
 _store_lock = threading.Lock()

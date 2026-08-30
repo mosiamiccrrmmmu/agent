@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from typing import Any
 
+from app.agent.cancel import is_agent_cancelled
 from app.computer.base import ComputerDriver
 from app.computer.models import (
     ActionResult,
@@ -72,8 +73,10 @@ class ComputerController:
             except ValueError:
                 return ActionResult(success=False, error=f"Unknown action: {action}")
 
-        if is_emergency_stopped() or self.state.cancelled:
-            return ActionResult(success=False, error="Computer Use cancelled (emergency stop)")
+        if is_emergency_stopped() or self.state.cancelled or is_agent_cancelled():
+            return ActionResult(
+                success=False, error="Computer Use cancelled (emergency stop)"
+            )
 
         elapsed = (datetime.utcnow() - self.state.start_time).total_seconds()
         if elapsed > self.policy.max_runtime_seconds:
@@ -97,7 +100,10 @@ class ComputerController:
 
         text = str(params.get("text", "") or "")
         risk = self.policy.risk_for(action, window_title=window_title, text=text)
-        if self.policy.requires_approval(action, window_title=window_title, text=text) and not approved:
+        if (
+            self.policy.requires_approval(action, window_title=window_title, text=text)
+            and not approved
+        ):
             return ActionResult(
                 success=False,
                 error=f"Action {action.value} requires human approval (risk={risk.value})",

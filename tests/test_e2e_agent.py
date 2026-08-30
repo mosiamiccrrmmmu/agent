@@ -43,7 +43,7 @@ def setup_mock_and_tools():
     tool_registry.register(WebSearchTool())
     tool_registry.register(RememberTool())
     tool_registry.register(RecallTool())
-    permission_manager._pending.clear()
+    permission_manager._cache.clear()
     yield
     llm_factory.clear()
     tool_registry._tools.clear()

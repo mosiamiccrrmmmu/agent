@@ -25,7 +25,6 @@ def _optional_auth(
     settings = get_settings()
     if not settings.require_local_auth:
         return
-    # During first-run setup, token may not exist yet — allow setup endpoints
     existing = _store.get(local_auth.TOKEN_NAME)
     if existing is None:
         return
@@ -46,7 +45,6 @@ class TestConnectionRequest(BaseModel):
 
 @router.get("/setup/status")
 async def setup_status() -> dict[str, Any]:
-    """First-run readiness. Public on localhost until configured."""
     settings = get_settings()
     paths = get_app_paths()
     has_grok = bool(_store.get("xai_api_key") or settings.effective_xai_api_key)
@@ -74,7 +72,6 @@ async def setup_status() -> dict[str, Any]:
 
 @router.post("/setup/provider")
 async def setup_provider(req: ProviderConfigRequest) -> dict[str, Any]:
-    """Store provider API key securely and ensure local auth token."""
     provider = req.provider.lower().strip()
     if provider not in ("grok", "openai", "anthropic", "mock"):
         raise HTTPException(400, f"Unsupported provider: {provider}")
@@ -86,7 +83,6 @@ async def setup_provider(req: ProviderConfigRequest) -> dict[str, Any]:
             "provider": "mock",
             "message": "Mock provider selected (no API key required)",
             "local_token_issued": True,
-            # Token returned once at setup only for desktop shell
             "local_api_token": token,
         }
 
@@ -113,7 +109,6 @@ async def setup_provider(req: ProviderConfigRequest) -> dict[str, Any]:
 
 @router.post("/setup/test-connection")
 async def test_connection(req: TestConnectionRequest) -> dict[str, Any]:
-    """Validate provider credentials without exposing the key."""
     provider = req.provider.lower().strip()
     api_key = req.api_key
 
@@ -136,7 +131,6 @@ async def test_connection(req: TestConnectionRequest) -> dict[str, Any]:
             "message": "No API key available for this provider",
         }
 
-    # Structural validation only (no live network required for unit safety)
     if len(api_key.strip()) < 8:
         return {
             "status": "error",
@@ -166,3 +160,14 @@ async def diagnostics(_: None = Depends(_optional_auth)) -> dict[str, Any]:
         "data_root": str(paths.root),
         "secret_backend": _store.backend_name(),
     }
+
+
+@router.post("/stop-all")
+async def stop_all(_: None = Depends(_optional_auth)) -> dict[str, str]:
+    """Emergency stop: agent cancel + computer use."""
+    from app.agent.cancel import request_agent_cancel
+    from app.computer.controller import trigger_emergency_stop
+
+    request_agent_cancel()
+    trigger_emergency_stop()
+    return {"status": "stopped"}

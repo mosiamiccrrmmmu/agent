@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """LLM Provider factory and simple model router.
 
-Supported providers: grok (primary), openai, anthropic, mock.
+Supported providers: grok (primary), openai, anthropic, local, mock.
 """
 
 from enum import StrEnum
@@ -12,6 +12,7 @@ from app.core.logging import get_logger
 from app.llm.anthropic import AnthropicProvider
 from app.llm.base import LLMProvider
 from app.llm.grok import GrokProvider
+from app.llm.local import LocalProvider
 from app.llm.mock import MockLLMProvider
 from app.llm.openai import OpenAIProvider
 
@@ -64,12 +65,14 @@ class LLMFactory:
                 api_key=settings.openai_api_key,
                 default_model=settings.openai_default_model,
             )
+        elif provider_name == "local":
+            provider = LocalProvider()
         elif provider_name == "mock":
             provider = MockLLMProvider()
         else:
             raise ValueError(
                 f"Unknown LLM provider: {provider_name}. "
-                f"Supported: grok, openai, anthropic, mock"
+                f"Supported: grok, openai, anthropic, local, mock"
             )
 
         self._providers[provider_name] = provider
@@ -79,12 +82,13 @@ class LLMFactory:
     def resolve_model(
         self, task: TaskType = TaskType.GENERAL, provider_name: str | None = None
     ) -> tuple[LLMProvider, str]:
-        """Simple model routing based on task type."""
         settings = get_settings()
         provider = self.get_provider(provider_name)
 
         if provider.name == "mock":
             return provider, "mock-model"
+        if provider.name == "local":
+            return provider, "local"
 
         if provider.name == "grok":
             model_map = {
@@ -115,19 +119,20 @@ class LLMFactory:
             }
 
         model = model_map.get(task, settings.default_model)
-        return provider, model
+        return provider, model or settings.default_model
 
-    def register_provider(self, name: str, provider: LLMProvider) -> None:
-        """Allow tests to inject a custom provider."""
-        self._providers[name] = provider
+    async def close_all(self) -> None:
+        for p in self._providers.values():
+            close = getattr(p, "close", None)
+            if close:
+                await close()
+        self._providers.clear()
 
     def clear(self) -> None:
         self._providers.clear()
 
-    async def close_all(self) -> None:
-        for p in self._providers.values():
-            await p.close()
-        self._providers.clear()
+    def register_provider(self, name: str, provider: LLMProvider) -> None:
+        self._providers[name] = provider
 
 
 llm_factory = LLMFactory()

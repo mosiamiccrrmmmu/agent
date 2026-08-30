@@ -1,4 +1,4 @@
-"""CLI: smoke-grok, release-audit, audit-fake-success.
+"""CLI: smoke-grok, release-audit, audit-fake-success, local-ai-status, diagnostics.
 
 Never prints API keys.
 """
@@ -292,6 +292,46 @@ def audit_fake_success() -> int:
     return 0
 
 
+def local_ai_status() -> int:
+    import httpx
+
+    from app.core.network import probe_internet
+
+    base = os.environ.get("LOCAL_AI_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    model = os.environ.get("LOCAL_AI_MODEL", "llama3.2")
+    net = probe_internet(timeout=0.8).value
+    ollama = "UNAVAILABLE"
+    reason = "not_reached"
+    try:
+        r = httpx.get(f"{base}/api/tags", timeout=2.0)
+        if r.status_code == 200:
+            ollama = "AVAILABLE"
+            reason = "api_tags_ok"
+            tags = r.json().get("models") or []
+            names = [m.get("name", "") for m in tags]
+            print(f"OLLAMA_MODELS={names[:10]}")
+        else:
+            reason = f"http_{r.status_code}"
+    except Exception as exc:
+        reason = type(exc).__name__
+    print(f"NETWORK={net}")
+    print(f"OLLAMA={ollama}")
+    print(f"BASE_URL={base}")
+    print(f"MODEL={model}")
+    print(f"REASON={reason}")
+    return 0 if ollama == "AVAILABLE" else 2
+
+
+def diagnostics() -> int:
+    print("PERSONALAI DIAGNOSTICS")
+    print("=" * 48)
+    print(f"Python={sys.version.split()[0]}")
+    print(f"Platform={platform.platform()}")
+    local_ai_status()
+    print("---")
+    return release_audit(as_json=False)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="cmd")
@@ -299,6 +339,8 @@ def main(argv: list[str] | None = None) -> int:
     ra = sub.add_parser("release-audit", help="Evidence-based release gate report")
     ra.add_argument("--json", action="store_true", help="Machine-readable JSON")
     sub.add_parser("audit-fake-success", help="Heuristic scan for fake success patterns")
+    sub.add_parser("local-ai-status", help="Ollama / local AI health")
+    sub.add_parser("diagnostics", help="System diagnostics + release-audit")
     args = parser.parse_args(argv)
     if args.cmd == "smoke-grok":
         return asyncio.run(smoke_grok())
@@ -306,6 +348,10 @@ def main(argv: list[str] | None = None) -> int:
         return release_audit(as_json=bool(getattr(args, "json", False)))
     if args.cmd == "audit-fake-success":
         return audit_fake_success()
+    if args.cmd == "local-ai-status":
+        return local_ai_status()
+    if args.cmd == "diagnostics":
+        return diagnostics()
     parser.print_help()
     return 0
 

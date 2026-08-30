@@ -16,14 +16,44 @@ class RiskLevel(StrEnum):
     CRITICAL = "critical"
 
 
+class ToolStatus(StrEnum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    DENIED = "DENIED"
+    CANCELLED = "CANCELLED"
+    TIMEOUT = "TIMEOUT"
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    UNAVAILABLE = "UNAVAILABLE"
+    RETRYING = "RETRYING"
+    BLOCKED = "BLOCKED"
+    REQUIRES_APPROVAL = "REQUIRES_APPROVAL"
+
+
 class ToolResult(BaseModel):
     """Standard result returned by every tool."""
 
     success: bool
     data: Any = None
     error: str | None = None
+    status: ToolStatus | None = None
+    error_code: str | None = None
+    message: str | None = None
+    retryable: bool = False
     requires_approval: bool = False
     approval_id: str | None = None
+    audit_id: str | None = None
+    duration_ms: float | None = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.status is None:
+            if self.requires_approval:
+                object.__setattr__(self, "status", ToolStatus.REQUIRES_APPROVAL)
+            elif self.success:
+                object.__setattr__(self, "status", ToolStatus.SUCCESS)
+            else:
+                object.__setattr__(self, "status", ToolStatus.FAILED)
+        if self.message is None and self.error:
+            object.__setattr__(self, "message", self.error)
 
 
 class ToolMetadata(BaseModel):

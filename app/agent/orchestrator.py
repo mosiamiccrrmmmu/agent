@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.agent.cancel import clear_agent_cancel, is_agent_cancelled
 from app.config import get_settings
 from app.core.logging import get_logger
 from app.llm.base import Message, MessageRole, ToolCall, ToolDefinition
@@ -55,6 +56,31 @@ You have access to tools. Use them when needed.
 When you need clarification, ask the user.
 When a high-risk action is required, the system will request approval automatically.
 """
+
+
+def _cancelled_result(
+    *,
+    run_id: str,
+    tools_used: list[str],
+    steps: int,
+    start: float,
+    total_tokens: int,
+    total_cost: float,
+) -> AgentRunResult:
+    clear_agent_cancel()
+    duration = (time.perf_counter() - start) * 1000
+    logger.info("agent_cancelled", run_id=run_id, step=steps)
+    return AgentRunResult(
+        run_id=run_id,
+        response="Stopped by user.",
+        tools_used=tools_used,
+        steps=steps,
+        duration_ms=duration,
+        total_tokens=total_tokens,
+        estimated_cost_usd=total_cost,
+        status="cancelled",
+        error="CANCELLED",
+    )
 
 
 class AgentOrchestrator:
@@ -128,6 +154,15 @@ class AgentOrchestrator:
         try:
             async with asyncio.timeout(settings.agent_timeout_seconds):
                 while steps < max_steps:
+                    if is_agent_cancelled():
+                        return _cancelled_result(
+                            run_id=run_id,
+                            tools_used=tools_used,
+                            steps=steps,
+                            start=start,
+                            total_tokens=total_tokens,
+                            total_cost=total_cost,
+                        )
                     steps += 1
                     logger.debug("agent_step", run_id=run_id, step=steps)
 
@@ -168,6 +203,15 @@ class AgentOrchestrator:
                     )
 
                     for tc in response.tool_calls:
+                        if is_agent_cancelled():
+                            return _cancelled_result(
+                                run_id=run_id,
+                                tools_used=tools_used,
+                                steps=steps,
+                                start=start,
+                                total_tokens=total_tokens,
+                                total_cost=total_cost,
+                            )
                         tools_used.append(tc.name)
                         result = await self._execute_tool(
                             tc, user_id=user_id, session_id=session_id
@@ -217,7 +261,10 @@ class AgentOrchestrator:
                 duration = (time.perf_counter() - start) * 1000
                 return AgentRunResult(
                     run_id=run_id,
-                    response="I reached the maximum number of steps. Please try a more specific request.",
+                    response=(
+                        "I reached the maximum number of steps. "
+                        "Please try a more specific request."
+                    ),
                     tools_used=tools_used,
                     steps=steps,
                     duration_ms=duration,
@@ -262,6 +309,9 @@ class AgentOrchestrator:
         user_id: str = "default",
         session_id: str = "default",
     ) -> ToolResult:
+        if is_agent_cancelled():
+            return ToolResult(success=False, error="CANCELLED")
+
         tool = tool_registry.get(tool_call.name)
         if tool is None:
             return ToolResult(success=False, error=f"Unknown tool: {tool_call.name}")

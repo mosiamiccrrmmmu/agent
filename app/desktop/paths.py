@@ -1,1 +1,64 @@
-"""Windows-appropriate application data directories.\n\nNever store mutable user data inside the installation directory.\n"""\n\nfrom __future__ import annotations\n\nimport os\nimport sys\nfrom dataclasses import dataclass\nfrom pathlib import Path\n\n\ndef _is_windows() -> bool:\n    return sys.platform.startswith(\"win\")\n\n\ndef _default_root() -> Path:\n    if _is_windows():\n        base = os.environ.get(\"LOCALAPPDATA\") or os.environ.get(\"APPDATA\")\n        if base:\n            return Path(base) / \"PersonalAI\"\n    xdg = os.environ.get(\"XDG_DATA_HOME\")\n    if xdg:\n        return Path(xdg) / \"personal-ai\"\n    return Path.home() / \".local\" / \"share\" / \"personal-ai\"\n\n\n@dataclass(frozen=True)\nclass AppPaths:\n    root: Path\n    config: Path\n    database: Path\n    logs: Path\n    cache: Path\n    downloads: Path\n    user_files: Path\n\n    def ensure(self) -> None:\n        for p in (\n            self.root,\n            self.config,\n            self.database,\n            self.logs,\n            self.cache,\n            self.downloads,\n            self.user_files,\n        ):\n            p.mkdir(parents=True, exist_ok=True)\n\n\ndef get_app_paths(root: Path | None = None) -> AppPaths:\n    base = root or _default_root()\n    paths = AppPaths(\n        root=base,\n        config=base / \"config\",\n        database=base / \"database\",\n        logs=base / \"logs\",\n        cache=base / \"cache\",\n        downloads=base / \"downloads\",\n        user_files=base / \"files\",\n    )\n    paths.ensure()\n    return paths\n
+"""Windows-appropriate application data directories.
+
+Never store mutable user data inside the installation directory.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+def _is_windows() -> bool:
+    return sys.platform.startswith("win")
+
+
+def _default_root() -> Path:
+    if _is_windows():
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base:
+            return Path(base) / "PersonalAI"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "personal-ai"
+    return Path.home() / ".local" / "share" / "personal-ai"
+
+
+@dataclass(frozen=True)
+class AppPaths:
+    root: Path
+    config: Path
+    database: Path
+    logs: Path
+    cache: Path
+    downloads: Path
+    user_files: Path
+
+    def ensure(self) -> None:
+        for p in (
+            self.root,
+            self.config,
+            self.database,
+            self.logs,
+            self.cache,
+            self.downloads,
+            self.user_files,
+        ):
+            p.mkdir(parents=True, exist_ok=True)
+
+
+def get_app_paths(root: Path | None = None) -> AppPaths:
+    base = root or _default_root()
+    paths = AppPaths(
+        root=base,
+        config=base / "config",
+        database=base / "database",
+        logs=base / "logs",
+        cache=base / "cache",
+        downloads=base / "downloads",
+        user_files=base / "files",
+    )
+    paths.ensure()
+    return paths

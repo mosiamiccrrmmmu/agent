@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import contextlib
 from functools import wraps
+from uuid import uuid4
 
+from app.agent.cancel import clear_agent_cancel, is_agent_cancelled
 from app.agent.lifecycle import AgentLifecycle, AgentState
 from app.agent.planner import DeterministicPlanner
 from app.core.logging import get_logger
@@ -28,16 +30,56 @@ def install_execution_hooks() -> None:
         user_id: str = "default",
         max_steps: int | None = None,
     ):
+        from app.agent.orchestrator import AgentRunResult
+
         life = AgentLifecycle(AgentState.IDLE)
         _plan = await DeterministicPlanner().create_plan(user_message)
         with contextlib.suppress(Exception):
             life.transition(AgentState.PLANNING)
             life.transition(AgentState.RUNNING)
+
         _store = None
         with contextlib.suppress(Exception):
             from app.database.sqlite_store import SQLiteStore
 
             _store = SQLiteStore()
+
+        if is_agent_cancelled():
+            clear_agent_cancel()
+            run_id = str(uuid4())
+            if _store is not None:
+                with contextlib.suppress(Exception):
+                    _store.upsert_agent_run(
+                        run_id,
+                        session_id=session_id,
+                        user_id=user_id,
+                        status="cancelled",
+                        goal=user_message[:500],
+                        plan=_plan.model_dump(),
+                        finished=True,
+                        error="CANCELLED",
+                        started=True,
+                    )
+            return AgentRunResult(
+                run_id=run_id,
+                response="Stopped by user.",
+                status="cancelled",
+                error="CANCELLED",
+            )
+
+        provisional_id = str(uuid4())
+        if _store is not None:
+            with contextlib.suppress(Exception):
+                _store.upsert_agent_run(
+                    provisional_id,
+                    session_id=session_id,
+                    user_id=user_id,
+                    status=life.state.value,
+                    goal=user_message[:500],
+                    plan=_plan.model_dump(),
+                    started=True,
+                )
+
         result = await original(
             self,
             user_message,
@@ -45,6 +87,7 @@ def install_execution_hooks() -> None:
             user_id=user_id,
             max_steps=max_steps,
         )
+
         if _store is not None:
             with contextlib.suppress(Exception):
                 _store.upsert_agent_run(

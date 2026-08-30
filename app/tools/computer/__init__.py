@@ -1,3 +1,3 @@
-from app.tools.computer.tools import ComputerActTool
+from app.tools.computer.tools import ComputerActTool, ComputerEmergencyStopTool
 
-__all__ = ["ComputerActTool"]
+__all__ = ["ComputerActTool", "ComputerEmergencyStopTool"]

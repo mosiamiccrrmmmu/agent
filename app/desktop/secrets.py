@@ -9,6 +9,7 @@ API keys and OAuth tokens must never appear in logs, UI, or crash reports.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 from pathlib import Path
@@ -127,7 +128,5 @@ class SecureSecretStore:
     def _save_fallback(self, data: dict[str, Any]) -> None:
         self._paths.config.mkdir(parents=True, exist_ok=True)
         self._fallback_file.write_text(json.dumps(data), encoding="utf-8")
-        try:
+        with contextlib.suppress(Exception):
             self._fallback_file.chmod(0o600)
-        except Exception:
-            pass

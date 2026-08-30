@@ -97,6 +97,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     lifecycle.mark_starting()
     _register_all_tools()
+    try:
+        from app.agent.execution_hooks import install_execution_hooks
+
+        install_execution_hooks()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("execution_hooks_skip", error=str(exc))
     lifecycle.mark_ready(database_ok=True)
 
     logger.info(

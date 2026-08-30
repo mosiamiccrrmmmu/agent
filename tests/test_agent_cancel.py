@@ -6,7 +6,7 @@ os.environ.setdefault("DATABASE_URL_SYNC", "sqlite:///./test_cancel.db")
 os.environ.setdefault("DEFAULT_LLM_PROVIDER", "mock")
 os.environ.setdefault("REQUIRE_LOCAL_AUTH", "false")
 
-from app.agent.orchestrator import (
+from app.agent.cancel import (
     clear_agent_cancel,
     is_agent_cancelled,
     request_agent_cancel,

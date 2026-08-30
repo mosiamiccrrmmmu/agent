@@ -21,34 +21,42 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "Personal AI Agent"
-    app_env: Literal["development", "staging", "production"] = "development"
+    app_version: str = "1.0.0"
+    app_env: Literal["development", "staging", "production", "desktop"] = "development"
     debug: bool = False
     log_level: str = "INFO"
-    secret_key: str = Field(..., min_length=16)
+    secret_key: str = Field(default="dev-secret-key-change-me", min_length=16)
+    desktop_mode: bool = False
 
-    # Server
-    host: str = "0.0.0.0"
-    port: int = 8000
+    # Server — desktop launcher overrides to 127.0.0.1
+    host: str = "127.0.0.1"
+    port: int = 8765
 
-    # Database
+    # Database (SQLite for desktop; Postgres optional for server)
     database_url: str = Field(
-        ...,
-        description="Async PostgreSQL connection string (postgresql+asyncpg://...)",
+        default="sqlite+aiosqlite:///./personal_ai.db",
+        description="Async DB URL (sqlite+aiosqlite://... or postgresql+asyncpg://...)",
     )
     database_url_sync: str = Field(
-        ...,
-        description="Sync PostgreSQL connection string for Alembic",
+        default="sqlite:///./personal_ai.db",
+        description="Sync DB URL for migrations",
     )
 
-    # LLM
+    # LLM — Grok is the primary desktop provider
+    xai_api_key: str | None = Field(default=None, validation_alias="XAI_API_KEY")
+    grok_api_key: str | None = Field(default=None, validation_alias="GROK_API_KEY")
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
-    default_llm_provider: Literal["anthropic", "openai", "mock"] = "anthropic"
-    default_model: str = "claude-sonnet-4-20250514"
-    fast_model: str = "claude-3-5-haiku-20241022"
-    coding_model: str = "claude-sonnet-4-20250514"
+    default_llm_provider: Literal["grok", "openai", "anthropic", "mock"] = "grok"
+    default_model: str = "grok-3-mini"
+    fast_model: str = "grok-3-mini"
+    coding_model: str = "grok-3-mini"
+    grok_default_model: str = "grok-3-mini"
+    grok_fast_model: str = "grok-3-mini"
     openai_default_model: str = "gpt-4o"
     openai_fast_model: str = "gpt-4o-mini"
+    anthropic_default_model: str = "claude-sonnet-4-20250514"
+    anthropic_fast_model: str = "claude-3-5-haiku-20241022"
 
     # Agent Runtime
     max_agent_steps: int = 15
@@ -67,9 +75,13 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str | None = None
     telegram_allowed_user_ids: str = ""
+    telegram_webhook_secret: str | None = None
 
     # Observability
     enable_cost_tracking: bool = True
+
+    # Local auth (desktop)
+    require_local_auth: bool = True
 
     @field_validator("telegram_allowed_user_ids", mode="before")
     @classmethod
@@ -90,8 +102,17 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env == "production"
 
+    @property
+    def is_desktop(self) -> bool:
+        return self.desktop_mode or self.app_env == "desktop"
+
+    @property
+    def effective_xai_api_key(self) -> str | None:
+        """Prefer XAI_API_KEY, fall back to GROK_API_KEY."""
+        return self.xai_api_key or self.grok_api_key
+
 
 @lru_cache
 def get_settings() -> Settings:
     """Cached settings instance."""
-    return Settings()  # type: ignore[call-arg]
+    return Settings()

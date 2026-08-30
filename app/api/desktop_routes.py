@@ -52,7 +52,12 @@ async def setup_status() -> dict[str, Any]:
     has_anthropic = bool(_store.get("anthropic_api_key") or settings.anthropic_api_key)
     token_ready = _store.has(local_auth.TOKEN_NAME)
 
-    configured = has_grok or has_openai or has_anthropic or settings.default_llm_provider == "mock"
+    configured = (
+        has_grok
+        or has_openai
+        or has_anthropic
+        or settings.default_llm_provider == "mock"
+    )
     return {
         "version": settings.app_version,
         "desktop": settings.is_desktop,
@@ -113,7 +118,11 @@ async def test_connection(req: TestConnectionRequest) -> dict[str, Any]:
     api_key = req.api_key
 
     if provider == "mock":
-        return {"status": "ok", "provider": "mock", "message": "Mock provider always available"}
+        return {
+            "status": "ok",
+            "provider": "mock",
+            "message": "Mock provider always available",
+        }
 
     if not api_key:
         key_name = {
@@ -164,10 +173,25 @@ async def diagnostics(_: None = Depends(_optional_auth)) -> dict[str, Any]:
 
 @router.post("/stop-all")
 async def stop_all(_: None = Depends(_optional_auth)) -> dict[str, str]:
-    """Emergency stop: agent cancel + computer use."""
+    """Emergency stop: agent cancel + computer use + block new work."""
     from app.agent.cancel import request_agent_cancel
     from app.computer.controller import trigger_emergency_stop
+    from app.core.execution_gate import block_all
 
     request_agent_cancel()
     trigger_emergency_stop()
+    block_all()
     return {"status": "stopped"}
+
+
+@router.post("/reset-stop")
+async def reset_stop(_: None = Depends(_optional_auth)) -> dict[str, str]:
+    """Clear global stop gate so new executions can start."""
+    from app.agent.cancel import clear_agent_cancel
+    from app.computer.controller import clear_emergency_stop
+    from app.core.execution_gate import reset_gate
+
+    clear_agent_cancel()
+    clear_emergency_stop()
+    reset_gate()
+    return {"status": "ready"}

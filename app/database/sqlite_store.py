@@ -102,9 +102,11 @@ CREATE TABLE IF NOT EXISTS app_settings (
 """
 
 
-def _dt(value: datetime | None) -> str | None:
+def _dt(value: datetime | str | None) -> str | None:
     if value is None:
         return None
+    if isinstance(value, str):
+        return value
     return value.isoformat()
 
 
@@ -156,9 +158,6 @@ class SQLiteStore:
                     "INSERT INTO meta(key, value) VALUES ('schema_version', ?)",
                     (str(SCHEMA_VERSION),),
                 )
-            # Future migrations branch on int(row["value"])
-
-    # ---- Long-term memory ----
 
     def ltm_add(
         self,
@@ -258,8 +257,6 @@ class SQLiteStore:
             "updated_at": _parse_dt(row["updated_at"]),
         }
 
-    # ---- Profile ----
-
     def profile_get(self, user_id: str) -> dict[str, Any] | None:
         with self._tx() as conn:
             row = conn.execute(
@@ -276,8 +273,6 @@ class SQLiteStore:
                    VALUES (?, ?, ?)""",
                 (user_id, json.dumps(data, default=str), _dt(datetime.utcnow())),
             )
-
-    # ---- Conversations ----
 
     def conversation_append(
         self,
@@ -330,8 +325,6 @@ class SQLiteStore:
     def conversation_clear(self, session_id: str) -> None:
         with self._tx() as conn:
             conn.execute("DELETE FROM conversations WHERE session_id=?", (session_id,))
-
-    # ---- Approvals ----
 
     def approval_save(self, data: dict[str, Any]) -> None:
         with self._tx() as conn:
@@ -400,8 +393,6 @@ class SQLiteStore:
             "resolved_by": row["resolved_by"],
         }
 
-    # ---- Scheduled tasks ----
-
     def task_save(self, data: dict[str, Any]) -> None:
         with self._tx() as conn:
             conn.execute(
@@ -468,8 +459,6 @@ class SQLiteStore:
             "metadata": json.loads(row["metadata_json"] or "{}"),
             "created_at": _parse_dt(row["created_at"]),
         }
-
-    # ---- App settings (non-secret) ----
 
     def setting_get(self, key: str) -> str | None:
         with self._tx() as conn:
